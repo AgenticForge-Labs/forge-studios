@@ -4,6 +4,7 @@ from .contracts import AssetRecord, EpisodePackage, FramePlan
 from .telemetry import TelemetrySink
 
 APPROVAL_FIELD={'storyboard':'approved_storyboard_asset_id','start_frame':'approved_start_frame_asset_id','end_frame':'approved_end_frame_asset_id','clip':'approved_clip_asset_id','take':'approved_take_id'}
+PROMPT_FIELD={'image':'image_prompt','storyboard':'storyboard_prompt','start_frame':'start_frame_prompt','end_frame':'end_frame_prompt','video':'video_prompt'}
 
 def approve_asset(package: EpisodePackage, shot_id: str, kind: str, asset_id: str, telemetry: TelemetrySink|None=None) -> None:
     shot=package.find_shot(shot_id); asset=package.find_asset(asset_id)
@@ -18,11 +19,7 @@ def reject_asset(package: EpisodePackage, shot_id: str, asset_id: str, telemetry
     asset.status='rejected'; (telemetry or TelemetrySink()).emit('asset.rejected',production_id=package.production_id,episode_id=package.episode_id,shot_id=shot_id,asset_id=asset_id)
 
 def register_asset(package: EpisodePackage, *, asset_id: str, uri: str, kind: str='reference_image', status: str='canon', authority: str='locked', metadata: dict|None=None) -> AssetRecord:
-    """Register an existing local/remote asset under a stable semantic ID.
-
-    The URI may be a local path. Provider adapters such as fal.ai can upload local
-    files when generation actually requires a provider-accessible URL.
-    """
+    """Register an existing local/remote asset under a stable semantic ID."""
     try:
         return package.find_asset(asset_id)
     except KeyError:
@@ -46,9 +43,11 @@ def remove_reference(package: EpisodePackage, shot_id: str, asset_id: str) -> No
 
 def set_prompt(package: EpisodePackage, shot_id: str, role: str, text: str|None) -> None:
     shot=package.find_shot(shot_id)
-    if role=='image': shot.image_prompt=text
-    elif role=='video': shot.video_prompt=text
-    else: raise ValueError("role must be 'image' or 'video'")
+    try:
+        field=PROMPT_FIELD[role]
+    except KeyError as exc:
+        raise ValueError(f'unknown prompt role {role!r}') from exc
+    setattr(shot,field,text)
 
 def set_frame_plan(package: EpisodePackage, shot_id: str, mode: str, *, chain_from_shot_id: str|None=None, start_asset_id: str|None=None, end_asset_id: str|None=None) -> None:
     shot=package.find_shot(shot_id)
