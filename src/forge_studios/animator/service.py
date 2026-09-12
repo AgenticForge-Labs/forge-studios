@@ -37,10 +37,29 @@ class AnimatorService:
             self.telemetry.emit('generation_attempt.failed',**attempt.model_dump(mode='json')); raise
         assets=[]
         for result in results:
-            asset=AssetRecord(asset_id=f'asset_{uuid4().hex}',kind=ROLE_KIND[role],uri=result.uri,status='candidate',authority='generated',episode_id=package.episode_id,shot_id=shot_id,attempt_id=attempt.attempt_id,provider=result.provider,model=result.model,source_asset_ids=shot.continuity_asset_ids + ([start_id] if start_id else []) + ([end_id] if end_id else []),metadata=result.metadata)
+            source_ids=shot.continuity_asset_ids + ([start_id] if start_id else []) + ([end_id] if end_id else [])
+            metadata=dict(result.metadata)
+            metadata['generation']={
+                'attempt_id':attempt.attempt_id,
+                'role':role,
+                'prompt':prompt,
+                'provider':result.provider,
+                'model':result.model,
+                'options':dict(shot.provider_options),
+                'reference_asset_ids':list(shot.continuity_asset_ids),
+                'start_asset_id':start_id,
+                'end_asset_id':end_id,
+            }
+            asset=AssetRecord(asset_id=f'asset_{uuid4().hex}',kind=ROLE_KIND[role],uri=result.uri,status='candidate',authority='generated',episode_id=package.episode_id,shot_id=shot_id,attempt_id=attempt.attempt_id,provider=result.provider,model=result.model,source_asset_ids=source_ids,metadata=metadata)
             package.assets.append(asset); assets.append(asset)
             target={'storyboard':'storyboard_asset_ids','start_frame':'start_frame_asset_ids','end_frame':'end_frame_asset_ids','video':'candidate_clip_asset_ids'}[role]
             getattr(shot,target).append(asset.asset_id)
+            self.telemetry.emit(
+                'asset.generated', production_id=package.production_id, episode_id=package.episode_id,
+                shot_id=shot_id, attempt_id=attempt.attempt_id, asset_id=asset.asset_id,
+                role=role, kind=asset.kind, provider=asset.provider, model=asset.model,
+                source_asset_ids=source_ids, prompt=prompt, options=shot.provider_options,
+            )
         attempt.outcome='succeeded'; attempt.asset_ids=[a.asset_id for a in assets]; attempt.model=assets[0].model if assets else None; attempt.latency_ms=(time.perf_counter()-started)*1000
         self.telemetry.emit('generation_attempt.succeeded',**attempt.model_dump(mode='json'))
         return assets
