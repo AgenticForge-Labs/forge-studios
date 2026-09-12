@@ -1,7 +1,8 @@
 from __future__ import annotations
 import argparse, getpass, json, os
+from pathlib import Path
 from .animator import AnimatorService
-from .director import plan_work
+from .director import AutonomyPolicy, DirectorService, plan_work
 from .filmmaker import render, write_edit_plan
 from .io import load_package, save_json
 from .package_ops import (
@@ -47,6 +48,31 @@ def _physical(args):
     if not command: raise RuntimeError('Set --command or FORGE_PUPPETEER_CMD')
     asset=dispatch(p,args.shot_id,command=command,output=args.out,telemetry=TelemetrySink(args.telemetry)); save_json(args.package,p); print(asset.asset_id)
 
+def _auto(args):
+    p=load_package(args.package)
+    sink=TelemetrySink(args.telemetry)
+    animator=AnimatorService(_provider(args.provider,args.output_dir),sink)
+    command=args.puppeteer_command or os.getenv('FORGE_PUPPETEER_CMD')
+    physical_executor=None
+    if command:
+        def physical_executor(package,shot_id):
+            out=Path(args.output_dir)/'physical'/f'{shot_id}.json'
+            return dispatch(package,shot_id,command=command,output=out,telemetry=sink).asset_id
+    director=DirectorService(animator,telemetry=sink,physical_executor=physical_executor)
+    policy=AutonomyPolicy(
+        auto_approve_storyboards=args.auto_approve_storyboards,
+        auto_approve_frames=args.auto_approve_frames,
+        auto_approve_clips=args.auto_approve_clips,
+        auto_approve_takes=args.auto_approve_takes,
+        allow_generated_video=args.allow_video,
+        allow_physical_execution=args.allow_physical,
+        max_actions=args.max_actions,
+    )
+    result=director.run_until_blocked(p,policy)
+    save_json(args.package,p)
+    payload={'status':result.status,'actions_completed':result.actions_completed,'next_work':result.next_work.__dict__ if result.next_work else None}
+    print(json.dumps(payload,indent=2))
+
 def _edit_plan(args): print(write_edit_plan(load_package(args.package),args.out))
 def _render(args): print(render(load_package(args.package),args.out,ffmpeg=args.ffmpeg,telemetry=TelemetrySink(args.telemetry)))
 
@@ -78,6 +104,7 @@ def build_parser():
     a=sub.add_parser('approve'); a.add_argument('--package',required=True); a.add_argument('--shot-id',required=True); a.add_argument('--kind',choices=['storyboard','start_frame','end_frame','clip','take'],required=True); a.add_argument('--asset-id',required=True); a.add_argument('--telemetry',default='.agenticforge/telemetry.jsonl'); a.set_defaults(func=_approve)
     rj=sub.add_parser('reject'); rj.add_argument('--package',required=True); rj.add_argument('--shot-id',required=True); rj.add_argument('--asset-id',required=True); rj.add_argument('--telemetry',default='.agenticforge/telemetry.jsonl'); rj.set_defaults(func=_reject)
     d=sub.add_parser('plan'); d.add_argument('--package',required=True); d.set_defaults(func=_plan)
+    au=sub.add_parser('auto'); au.add_argument('--package',required=True); au.add_argument('--provider',choices=['mock','fal'],default='mock'); au.add_argument('--output-dir',default='outputs'); au.add_argument('--telemetry',default='.agenticforge/telemetry.jsonl'); au.add_argument('--auto-approve-storyboards',action='store_true'); au.add_argument('--auto-approve-frames',action='store_true'); au.add_argument('--auto-approve-clips',action='store_true'); au.add_argument('--auto-approve-takes',action='store_true'); au.add_argument('--allow-video',action='store_true'); au.add_argument('--allow-physical',action='store_true'); au.add_argument('--puppeteer-command'); au.add_argument('--max-actions',type=int,default=100); au.set_defaults(func=_auto)
     ph=sub.add_parser('physical'); ph.add_argument('--package',required=True); ph.add_argument('--shot-id',required=True); ph.add_argument('--command'); ph.add_argument('--out',required=True); ph.add_argument('--telemetry',default='.agenticforge/telemetry.jsonl'); ph.set_defaults(func=_physical)
     ep=sub.add_parser('edit-plan'); ep.add_argument('--package',required=True); ep.add_argument('--out',required=True); ep.set_defaults(func=_edit_plan)
     rr=sub.add_parser('render'); rr.add_argument('--package',required=True); rr.add_argument('--out',required=True); rr.add_argument('--ffmpeg',default='ffmpeg'); rr.add_argument('--telemetry',default='.agenticforge/telemetry.jsonl'); rr.set_defaults(func=_render)
