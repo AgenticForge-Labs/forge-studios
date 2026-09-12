@@ -6,17 +6,20 @@ from ..providers.base import MediaProvider, MediaRequest
 from ..telemetry import TelemetrySink
 
 ROLE_KIND={'storyboard':'storyboard_image','start_frame':'start_frame','end_frame':'end_frame','video':'generated_clip'}
+ROLE_PROMPT={'storyboard':'storyboard_prompt','start_frame':'start_frame_prompt','end_frame':'end_frame_prompt','video':'video_prompt'}
 
 class AnimatorService:
     def __init__(self, provider: MediaProvider, telemetry: TelemetrySink|None=None):
         self.provider=provider; self.telemetry=telemetry or TelemetrySink()
     def generate(self, package: EpisodePackage, shot_id: str, *, role: str='storyboard') -> list[AssetRecord]:
         shot=package.find_shot(shot_id)
+        if role not in ROLE_KIND: raise ValueError(f'unknown generation role {role!r}')
         if shot.execution_route=='puppeteer' and role!='storyboard':
             raise ValueError('physical-only shot belongs to Forge Puppeteer')
         if role=='video' and shot.render_strategy not in {'generated_video','hybrid'}:
             raise ValueError('shot is not configured for generated video')
-        prompt=(shot.video_prompt if role=='video' else shot.image_prompt) or self._default_prompt(shot, role)
+        specific=getattr(shot,ROLE_PROMPT[role],None)
+        prompt=specific or (shot.image_prompt if role!='video' else None) or self._default_prompt(shot, role)
         refs=[self._asset_uri(package,a) for a in shot.continuity_asset_ids]
         start_id=shot.approved_start_frame_asset_id or shot.frame_plan.start_asset_id
         end_id=shot.approved_end_frame_asset_id or shot.frame_plan.end_asset_id
@@ -52,5 +55,12 @@ class AnimatorService:
         if shot.camera: parts.append('Camera: '+json.dumps(shot.camera,ensure_ascii=False))
         if shot.visual_constraints: parts.append('Visual constraints: '+json.dumps(shot.visual_constraints,ensure_ascii=False))
         if shot.performance_intent: parts.append('Performance intent: '+json.dumps(shot.performance_intent,ensure_ascii=False))
-        parts.append('Describe only temporal change and preserve supplied frames.' if role=='video' else f'Create the {role.replace("_"," ")} for this shot. Preserve canonical references and scale.')
+        if role=='video':
+            parts.append('Describe only temporal change and preserve supplied start/end frames and canonical references.')
+        elif role=='start_frame':
+            parts.append('Create the exact approved starting composition for the shot. Preserve canonical references, anatomy, architecture, scale, and spatial relationships.')
+        elif role=='end_frame':
+            parts.append('Create the exact destination composition the shot must reach. Preserve canonical references, anatomy, architecture, scale, and spatial relationships.')
+        else:
+            parts.append('Create a production storyboard still for this shot. Preserve canonical references, anatomy, architecture, scale, and spatial relationships.')
         return '\n\n'.join(parts)
