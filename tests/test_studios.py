@@ -7,7 +7,7 @@ from forge_studios.providers import MockProvider
 from forge_studios.providers.fal import FalProvider
 from forge_studios.providers.base import MediaRequest
 from forge_studios.package_ops import approve_asset, add_reference, register_asset, set_prompt
-from forge_studios.director import plan_work
+from forge_studios.director import AutonomyPolicy, DirectorService, plan_work
 from forge_studios.storyboard import build_storyboard
 
 
@@ -17,21 +17,47 @@ def package():
 
 def test_manual_progression(tmp_path):
     p=package(); svc=AnimatorService(MockProvider(tmp_path/'assets'))
-    assets=svc.generate(p,'sh1',role='storyboard'); approve_asset(p,'sh1','storyboard',assets[0].asset_id)
-    work=plan_work(p); assert [w.action for w in work][:2]==['generate_start_frame','generate_end_frame']
-    start=svc.generate(p,'sh1',role='start_frame')[0]; approve_asset(p,'sh1','start_frame',start.asset_id)
-    end=svc.generate(p,'sh1',role='end_frame')[0]; approve_asset(p,'sh1','end_frame',end.asset_id)
-    assert any(w.action=='generate_video' for w in plan_work(p))
+    assets=svc.generate(p,'sh1',role='storyboard')
+    assert plan_work(p)[0].action=='review_storyboard'
+    approve_asset(p,'sh1','storyboard',assets[0].asset_id)
+    assert plan_work(p)[0].action=='generate_start_frame'
+    start=svc.generate(p,'sh1',role='start_frame')[0]
+    assert plan_work(p)[0].action=='review_start_frame'
+    approve_asset(p,'sh1','start_frame',start.asset_id)
+    assert plan_work(p)[0].action=='generate_end_frame'
+    end=svc.generate(p,'sh1',role='end_frame')[0]
+    approve_asset(p,'sh1','end_frame',end.asset_id)
+    assert plan_work(p)[0].action=='generate_video'
     assert build_storyboard(p,tmp_path/'storyboard.html').exists()
+
+
+def test_director_stops_at_human_review_by_default(tmp_path):
+    p=package(); svc=AnimatorService(MockProvider(tmp_path/'assets'))
+    result=DirectorService(svc).run_until_blocked(p)
+    assert result.status=='awaiting_review'
+    assert result.next_work.action=='review_storyboard'
+    assert len(p.find_shot('sh1').storyboard_asset_ids)==1
+
+
+def test_director_can_fully_auto_run_when_explicitly_allowed(tmp_path):
+    p=package(); svc=AnimatorService(MockProvider(tmp_path/'assets'))
+    policy=AutonomyPolicy(auto_approve_storyboards=True,auto_approve_frames=True,auto_approve_clips=True,allow_generated_video=True)
+    result=DirectorService(svc).run_until_blocked(p,policy)
+    assert result.status=='complete'
+    shot=p.find_shot('sh1')
+    assert shot.approved_storyboard_asset_id
+    assert shot.approved_start_frame_asset_id
+    assert shot.approved_end_frame_asset_id
+    assert shot.approved_clip_asset_id
 
 
 def test_manual_reference_and_prompt(tmp_path):
     p=package(); ref=tmp_path/'ember.png'; ref.write_bytes(b'not-a-real-png')
     register_asset(p,asset_id='character_ember',uri=str(ref),kind='reference_image',status='canon',authority='locked')
     add_reference(p,'sh1','character_ember')
-    set_prompt(p,'sh1','image','Ember sleeping on the altar')
+    set_prompt(p,'sh1','start_frame','Ember sleeping on the altar')
     assert p.find_shot('sh1').continuity_asset_ids==['character_ember']
-    assert p.find_shot('sh1').image_prompt=='Ember sleeping on the altar'
+    assert p.find_shot('sh1').start_frame_prompt=='Ember sleeping on the altar'
 
 
 def test_fal_provider_uses_stored_key_and_uploads_local_reference(tmp_path,monkeypatch):
