@@ -27,7 +27,21 @@ class AnimatorService:
             previous=package.find_shot(shot.frame_plan.chain_from_shot_id or '')
             start_id=previous.approved_end_frame_asset_id or previous.approved_storyboard_asset_id
         request=MediaRequest(kind='video' if role=='video' else 'image',shot_id=shot_id,role=role,prompt=prompt,reference_assets=tuple(refs),start_frame_asset=self._asset_uri(package,start_id) if start_id else None,end_frame_asset=self._asset_uri(package,end_id) if end_id else None,options=shot.provider_options)
-        attempt=GenerationAttempt(production_id=package.production_id,episode_id=package.episode_id,shot_id=shot_id,role=role,provider=self.provider.name,prompt=prompt,reference_asset_ids=shot.continuity_asset_ids,options=shot.provider_options)
+        shot_features={
+            'duration_seconds':shot.duration_seconds,
+            'purpose':shot.purpose,
+            'visual':shot.visual,
+            'entity_ids':shot.entity_ids,
+            'camera':shot.camera,
+            'visual_constraints':shot.visual_constraints,
+            'performance_intent':shot.performance_intent,
+            'edit_intent':shot.edit_intent,
+            'execution_route':shot.execution_route,
+            'render_strategy':shot.render_strategy,
+            'frame_plan':shot.frame_plan.model_dump(mode='json'),
+            'source_beat_ids':shot.source_beat_ids,
+        }
+        attempt=GenerationAttempt(production_id=package.production_id,episode_id=package.episode_id,shot_id=shot_id,role=role,provider=self.provider.name,prompt=prompt,reference_asset_ids=shot.continuity_asset_ids,options=shot.provider_options,metadata={'shot_features':shot_features})
         self.telemetry.emit('generation_attempt.started',**attempt.model_dump(mode='json'))
         started=time.perf_counter()
         try:
@@ -49,6 +63,7 @@ class AnimatorService:
                 'reference_asset_ids':list(shot.continuity_asset_ids),
                 'start_asset_id':start_id,
                 'end_asset_id':end_id,
+                'shot_features':shot_features,
             }
             asset=AssetRecord(asset_id=f'asset_{uuid4().hex}',kind=ROLE_KIND[role],uri=result.uri,status='candidate',authority='generated',episode_id=package.episode_id,shot_id=shot_id,attempt_id=attempt.attempt_id,provider=result.provider,model=result.model,source_asset_ids=source_ids,metadata=metadata)
             package.assets.append(asset); assets.append(asset)
@@ -59,6 +74,7 @@ class AnimatorService:
                 shot_id=shot_id, attempt_id=attempt.attempt_id, asset_id=asset.asset_id,
                 role=role, kind=asset.kind, provider=asset.provider, model=asset.model,
                 source_asset_ids=source_ids, prompt=prompt, options=shot.provider_options,
+                shot_features=shot_features,
             )
         attempt.outcome='succeeded'; attempt.asset_ids=[a.asset_id for a in assets]; attempt.model=assets[0].model if assets else None; attempt.latency_ms=(time.perf_counter()-started)*1000
         self.telemetry.emit('generation_attempt.succeeded',**attempt.model_dump(mode='json'))
