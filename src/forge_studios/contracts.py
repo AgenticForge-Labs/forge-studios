@@ -31,6 +31,9 @@ class Shot(BaseModel):
     render_strategy: Literal['still','still_motion','generated_video','physical','hybrid'] = 'still'
     frame_plan: FramePlan = Field(default_factory=FramePlan)
     image_prompt: str | None = None
+    storyboard_prompt: str | None = None
+    start_frame_prompt: str | None = None
+    end_frame_prompt: str | None = None
     video_prompt: str | None = None
     provider_options: dict[str, Any] = Field(default_factory=dict)
     storyboard_asset_ids: list[str] = Field(default_factory=list)
