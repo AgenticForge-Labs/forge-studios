@@ -20,6 +20,13 @@ def _provider(name: str, output_dir: str):
     if name=='fal': return FalProvider()
     raise ValueError(name)
 
+def _scores(values):
+    result={}
+    for item in values or []:
+        if '=' not in item: raise ValueError(f'score must be name=value, got {item!r}')
+        name,value=item.split('=',1); result[name]=float(value)
+    return result
+
 def _keys(args):
     s=LocalSecretStore()
     if args.action=='set':
@@ -36,10 +43,10 @@ def _generate(args):
     p=load_package(args.package); service=AnimatorService(_provider(args.provider,args.output_dir),TelemetrySink(args.telemetry)); assets=service.generate(p,args.shot_id,role=args.role); save_json(args.package,p); print(json.dumps([a.model_dump(mode='json') for a in assets],indent=2))
 
 def _approve(args):
-    p=load_package(args.package); approve_asset(p,args.shot_id,args.kind,args.asset_id,TelemetrySink(args.telemetry)); save_json(args.package,p); print(args.asset_id)
+    p=load_package(args.package); approve_asset(p,args.shot_id,args.kind,args.asset_id,TelemetrySink(args.telemetry),note=args.note,tags=args.tag,scores=_scores(args.score)); save_json(args.package,p); print(args.asset_id)
 
 def _reject(args):
-    p=load_package(args.package); reject_asset(p,args.shot_id,args.asset_id,TelemetrySink(args.telemetry)); save_json(args.package,p); print(args.asset_id)
+    p=load_package(args.package); reject_asset(p,args.shot_id,args.asset_id,TelemetrySink(args.telemetry),reason=args.reason,tags=args.tag,scores=_scores(args.score)); save_json(args.package,p); print(args.asset_id)
 
 def _plan(args): print(json.dumps([w.__dict__ for w in plan_work(load_package(args.package))],indent=2))
 
@@ -95,14 +102,19 @@ def _reference(args):
     (add_reference if args.action=='add' else remove_reference)(p,args.shot_id,args.asset_id)
     save_json(args.package,p); print(args.shot_id)
 
+def _review_args(parser, *, rejection=False):
+    parser.add_argument('--tag',action='append',help='structured review tag; repeatable')
+    parser.add_argument('--score',action='append',help='numeric review dimension as name=value; repeatable')
+    parser.add_argument('--reason' if rejection else '--note')
+
 def build_parser():
     p=argparse.ArgumentParser(prog='forge-studios'); sub=p.add_subparsers(dest='cmd',required=True)
     k=sub.add_parser('keys'); ks=k.add_subparsers(dest='action',required=True); st=ks.add_parser('set'); st.add_argument('name'); st.add_argument('value',nargs='?'); ks.add_parser('list'); k.set_defaults(func=_keys)
     v=sub.add_parser('validate'); v.add_argument('path'); v.set_defaults(func=_package)
     sb=sub.add_parser('storyboard'); sb.add_argument('--package',required=True); sb.add_argument('--out',required=True); sb.set_defaults(func=_storyboard)
     g=sub.add_parser('generate'); g.add_argument('--package',required=True); g.add_argument('--shot-id',required=True); g.add_argument('--role',choices=['storyboard','start_frame','end_frame','video'],default='storyboard'); g.add_argument('--provider',choices=['mock','fal'],default='mock'); g.add_argument('--output-dir',default='outputs'); g.add_argument('--telemetry',default='.agenticforge/telemetry.jsonl'); g.set_defaults(func=_generate)
-    a=sub.add_parser('approve'); a.add_argument('--package',required=True); a.add_argument('--shot-id',required=True); a.add_argument('--kind',choices=['storyboard','start_frame','end_frame','clip','take'],required=True); a.add_argument('--asset-id',required=True); a.add_argument('--telemetry',default='.agenticforge/telemetry.jsonl'); a.set_defaults(func=_approve)
-    rj=sub.add_parser('reject'); rj.add_argument('--package',required=True); rj.add_argument('--shot-id',required=True); rj.add_argument('--asset-id',required=True); rj.add_argument('--telemetry',default='.agenticforge/telemetry.jsonl'); rj.set_defaults(func=_reject)
+    a=sub.add_parser('approve'); a.add_argument('--package',required=True); a.add_argument('--shot-id',required=True); a.add_argument('--kind',choices=['storyboard','start_frame','end_frame','clip','take'],required=True); a.add_argument('--asset-id',required=True); a.add_argument('--telemetry',default='.agenticforge/telemetry.jsonl'); _review_args(a); a.set_defaults(func=_approve)
+    rj=sub.add_parser('reject'); rj.add_argument('--package',required=True); rj.add_argument('--shot-id',required=True); rj.add_argument('--asset-id',required=True); rj.add_argument('--telemetry',default='.agenticforge/telemetry.jsonl'); _review_args(rj,rejection=True); rj.set_defaults(func=_reject)
     d=sub.add_parser('plan'); d.add_argument('--package',required=True); d.set_defaults(func=_plan)
     au=sub.add_parser('auto'); au.add_argument('--package',required=True); au.add_argument('--provider',choices=['mock','fal'],default='mock'); au.add_argument('--output-dir',default='outputs'); au.add_argument('--telemetry',default='.agenticforge/telemetry.jsonl'); au.add_argument('--auto-approve-storyboards',action='store_true'); au.add_argument('--auto-approve-frames',action='store_true'); au.add_argument('--auto-approve-clips',action='store_true'); au.add_argument('--auto-approve-takes',action='store_true'); au.add_argument('--allow-video',action='store_true'); au.add_argument('--allow-physical',action='store_true'); au.add_argument('--puppeteer-command'); au.add_argument('--max-actions',type=int,default=100); au.set_defaults(func=_auto)
     ph=sub.add_parser('physical'); ph.add_argument('--package',required=True); ph.add_argument('--shot-id',required=True); ph.add_argument('--command'); ph.add_argument('--out',required=True); ph.add_argument('--telemetry',default='.agenticforge/telemetry.jsonl'); ph.set_defaults(func=_physical)
