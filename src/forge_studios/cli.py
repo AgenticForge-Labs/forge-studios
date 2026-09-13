@@ -15,6 +15,7 @@ from .telemetry import TelemetrySink
 from .puppeteer_bridge import dispatch
 from .timeline import save_timeline
 from .timeline_adapter import timeline_from_episode_package
+from .shorts import render_short,write_short_edit_plan
 
 def _provider(name,output_dir):
     if name=='mock': return MockProvider(output_dir)
@@ -59,6 +60,8 @@ def _auto(args):
     result=director.run_until_blocked(p,policy); save_json(args.package,p); print(json.dumps({'status':result.status,'actions_completed':result.actions_completed,'next_work':result.next_work.__dict__ if result.next_work else None},indent=2))
 def _edit_plan(args): print(write_edit_plan(load_package(args.package),args.out))
 def _render(args): print(render(load_package(args.package),args.out,ffmpeg=args.ffmpeg,telemetry=TelemetrySink(args.telemetry)))
+def _short_plan(args): print(write_short_edit_plan(load_package(args.package),args.short_id,args.out))
+def _render_short(args): print(render_short(load_package(args.package),args.short_id,args.out,ffmpeg=args.ffmpeg,width=args.width,height=args.height,fps=args.fps,telemetry=TelemetrySink(args.telemetry)))
 def _boundaries(args):
     p=load_package(args.package); first,last=extract_boundary_frames(p,args.shot_id,args.asset_id,output_dir=args.out_dir,ffmpeg=args.ffmpeg,telemetry=TelemetrySink(args.telemetry)); save_json(args.package,p); print(json.dumps({'first':first.asset_id,'last':last.asset_id},indent=2))
 def _timeline(args):
@@ -92,6 +95,8 @@ def build_parser():
     ph=sub.add_parser('physical'); ph.add_argument('--package',required=True); ph.add_argument('--shot-id',required=True); ph.add_argument('--command'); ph.add_argument('--out',required=True); ph.add_argument('--telemetry',default='.agenticforge/telemetry.jsonl'); ph.set_defaults(func=_physical)
     ep=sub.add_parser('edit-plan'); ep.add_argument('--package',required=True); ep.add_argument('--out',required=True); ep.set_defaults(func=_edit_plan)
     rr=sub.add_parser('render'); rr.add_argument('--package',required=True); rr.add_argument('--out',required=True); rr.add_argument('--ffmpeg',default='ffmpeg'); rr.add_argument('--telemetry',default='.agenticforge/telemetry.jsonl'); rr.set_defaults(func=_render)
+    sep=sub.add_parser('short-edit-plan'); sep.add_argument('--package',required=True); sep.add_argument('--short-id',required=True); sep.add_argument('--out',required=True); sep.set_defaults(func=_short_plan)
+    rs=sub.add_parser('render-short'); rs.add_argument('--package',required=True); rs.add_argument('--short-id',required=True); rs.add_argument('--out',required=True); rs.add_argument('--ffmpeg',default='ffmpeg'); rs.add_argument('--width',type=int,default=1080); rs.add_argument('--height',type=int,default=1920); rs.add_argument('--fps',type=int,default=30); rs.add_argument('--telemetry',default='.agenticforge/telemetry.jsonl'); rs.set_defaults(func=_render_short)
     bd=sub.add_parser('extract-boundaries'); bd.add_argument('--package',required=True); bd.add_argument('--shot-id',required=True); bd.add_argument('--asset-id',required=True); bd.add_argument('--out-dir',required=True); bd.add_argument('--ffmpeg',default='ffmpeg'); bd.add_argument('--telemetry',default='.agenticforge/telemetry.jsonl'); bd.set_defaults(func=_boundaries)
     tl=sub.add_parser('timeline'); tl.add_argument('--package',required=True); tl.add_argument('--out',required=True); tl.add_argument('--rate',type=float,default=30); tl.add_argument('--require-media',action='store_true'); tl.set_defaults(func=_timeline)
     rm=sub.add_parser('render-mlt'); rm.add_argument('--package',required=True); rm.add_argument('--out',required=True); rm.add_argument('--rate',type=float,default=30); rm.add_argument('--profile',default='atsc_1080p_30'); rm.set_defaults(func=_render_mlt)
