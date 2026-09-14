@@ -6,6 +6,8 @@ Open execution runtime for AgenticForge productions. Forge Studios consumes a ve
 
 The package is the master narrative/production sequence. Storyboard HTML, Director work plans, timeline projections, and edit plans are derived from that package rather than becoming separate sources of truth.
 
+See [`docs/ROADMAP.md`](docs/ROADMAP.md) for the staged production roadmap, including controlled multi-model comparisons, data collection, continuity, automated criticism, and later learned routing.
+
 ## Install
 
 ```bash
