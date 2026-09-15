@@ -3,7 +3,7 @@ import json, os
 from pathlib import Path
 from platformdirs import user_config_dir
 
-_ENV_NAMES={'fal':'FAL_KEY','openrouter':'OPENROUTER_API_KEY'}
+_ENV_NAMES={'fal':'FAL_KEY'}
 
 class LocalSecretStore:
     """Resolve local API credentials from environment or a user-only config file."""
