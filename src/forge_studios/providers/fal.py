@@ -11,7 +11,7 @@ from urllib.request import urlretrieve
 from uuid import uuid4
 
 from ..local_config import LocalSecretStore
-from .base import MediaRequest, MediaResult
+from .base import MediaRequest, MediaResult, ProviderGenerationError
 
 
 @dataclass(frozen=True)
@@ -27,12 +27,9 @@ class FalImageModelProfile:
 _DEFAULT_IMAGE_PROFILE = FalImageModelProfile()
 DEFAULT_IMAGE_SIZE = {'width': 1920, 'height': 1080}
 _IMAGE_MODEL_PROFILES = {
-    # The ordinary Kontext endpoint is single-image editing.
     "fal-ai/flux-pro/kontext": FalImageModelProfile("image_url", "single", 1),
-    # Fal documents this endpoint as accepting image_urls for multi-image editing.
     "fal-ai/flux-pro/kontext/max/multi": FalImageModelProfile("image_urls", "list"),
     "fal-ai/flux-2-pro/edit": FalImageModelProfile("image_urls", "list"),
-    # Kling accepts up to ten image_urls and addresses them as @Image1, @Image2, etc.
     "fal-ai/kling-image/o3/image-to-image": FalImageModelProfile("image_urls", "list", 10, True),
     "openai/gpt-image-2/edit": FalImageModelProfile("image_urls", "list", 16),
 }
@@ -44,12 +41,7 @@ def image_model_profile(model: str) -> FalImageModelProfile:
 
 
 def provider_safe_image_prompt(prompt: str) -> str:
-    """Apply a final conservative wording pass before sending text to fal.
-
-    Story fields can retain narrative language. This adapter only receives media
-    prompts and avoids resting-state and anatomy-failure vocabulary that has
-    repeatedly tripped image-provider checks.
-    """
+    """Apply a final conservative wording pass before sending text to fal."""
     replacements = (
         (r"\bawake but still lying on\b", "awake and settled on"),
         (r"\blying on\b", "resting on"),
@@ -70,13 +62,21 @@ def provider_safe_image_prompt(prompt: str) -> str:
     return result
 
 
-class FalProvider:
-    """fal.ai provider with local-file upload and explicit start/end-frame support.
+def _classify_fal_failure(exc: Exception) -> str:
+    text=f'{type(exc).__name__}: {exc}'.casefold()
+    if any(term in text for term in ('content_policy', 'content policy', 'safety checker', 'safety violation', 'nsfw')):
+        return 'content_policy'
+    if 'timeout' in text or 'timed out' in text:
+        return 'timeout'
+    if any(term in text for term in ('remoteprotocolerror', 'connectionerror', 'connecterror', 'network', 'connection reset')):
+        return 'transport'
+    if any(term in text for term in ('bad request', 'validation', '422', '400')):
+        return 'request_validation'
+    return 'provider_error'
 
-    Authentication uses the official fal-client `SyncClient(key=...)` when a key is
-    stored by `forge-studios keys set fal`. If no Forge key is stored, fal-client can
-    still use its normal FAL_KEY / `fal auth login` authentication.
-    """
+
+class FalProvider:
+    """fal.ai provider with local-file upload and explicit start/end-frame support."""
     name='fal'
     def __init__(self, *, image_model: str|None=None, video_model: str|None=None, output_dir: str|Path='outputs/fal', local_config: LocalSecretStore|None=None, progress: Callable[[str], None]|None=None, client_timeout_seconds: float|None=None, poll_interval_seconds: float|None=None):
         self.image_model=image_model or os.getenv('FAL_IMAGE_MODEL')
@@ -92,7 +92,6 @@ class FalProvider:
             self.progress(message)
 
     def _download_output(self, uri: str, request: MediaRequest, index: int) -> str:
-        """Download provider output so package media remains usable after CDN expiry."""
         parsed=urlparse(uri)
         if parsed.scheme not in {'http','https'}:
             return uri
@@ -103,7 +102,6 @@ class FalProvider:
         return str(target.resolve())
 
     def localize(self, uri: str, request: MediaRequest, index: int = 0) -> tuple[str, str | None]:
-        """Return a durable local URI and the original provider URI."""
         parsed=urlparse(uri)
         if parsed.scheme not in {'http','https'}:
             return uri, None
@@ -123,7 +121,6 @@ class FalProvider:
 
     @staticmethod
     def _image_reference_payload(model: str, references: list[str]) -> tuple[dict[str, Any], str]:
-        """Map storage-neutral references to the selected Fal image endpoint schema."""
         if not references:
             return {}, ""
         profile = image_model_profile(model)
@@ -140,6 +137,35 @@ class FalProvider:
             prompt_suffix = f"\n\nReference images are supplied in order as {names}."
         return {field: value}, prompt_suffix
 
+    def _diagnostic_settings(self, *, request: MediaRequest, model: str, payload: dict[str,Any], reference_count: int) -> dict[str,Any]:
+        settings: dict[str,Any]={
+            'kind':request.kind,
+            'shot_id':request.shot_id,
+            'role':request.role,
+            'reference_count':reference_count,
+            'client_timeout_seconds':self.client_timeout_seconds,
+            'poll_interval_seconds':self.poll_interval_seconds,
+        }
+        if request.kind=='image':
+            profile=image_model_profile(model)
+            settings.update({
+                'reference_field':os.getenv('FAL_IMAGE_REFERENCE_FIELD') or profile.reference_field,
+                'reference_shape':profile.reference_shape,
+                'max_references':profile.max_references,
+                'image_size':payload.get('image_size'),
+                'safety_tolerance':payload.get('safety_tolerance','provider-default'),
+                'enable_safety_checker':payload.get('enable_safety_checker','provider-default'),
+            })
+        else:
+            settings.update({
+                'start_frame_field':os.getenv('FAL_VIDEO_START_FRAME_FIELD','image_url'),
+                'end_frame_field':os.getenv('FAL_VIDEO_END_FRAME_FIELD','end_image_url'),
+                'reference_field':os.getenv('FAL_VIDEO_REFERENCE_FIELD'),
+                'has_start_frame':bool(request.start_frame_asset),
+                'has_end_frame':bool(request.end_frame_asset),
+            })
+        return settings
+
     def generate(self, request: MediaRequest) -> list[MediaResult]:
         try:
             import fal_client
@@ -151,30 +177,32 @@ class FalProvider:
         client=fal_client.SyncClient(key=stored_key) if stored_key else fal_client.SyncClient()
         payload: dict[str,Any]={'prompt':provider_safe_image_prompt(request.prompt) if request.kind=='image' else request.prompt,**request.options}
         if request.kind=='image':
-            # Match the primary 16:9 delivery format. A shot may override this
-            # through provider_options when a different canvas is intentional.
             payload.setdefault('image_size', dict(DEFAULT_IMAGE_SIZE))
-            # FLUX.2 Pro Edit defaults to tolerance 2, which has rejected benign
-            # stylized-character storyboards in this production. Keep Fal's checker
-            # enabled, but use its documented most-permissive API tolerance unless a
-            # shot explicitly asks for a stricter value. This is provider execution
-            # configuration, not world or story metadata.
             if model.startswith('fal-ai/flux-2'):
                 payload.setdefault('safety_tolerance', os.getenv('FAL_IMAGE_SAFETY_TOLERANCE','5'))
                 payload.setdefault('enable_safety_checker', True)
         refs=[self._remote_or_upload(value,client) for value in request.reference_assets]
         refs=[value for value in refs if value]
-        if request.kind=='image' and refs:
-            reference_payload, prompt_suffix = self._image_reference_payload(model, refs)
-            payload.update(reference_payload)
-            payload['prompt'] += prompt_suffix
-        if request.kind=='video':
-            if request.start_frame_asset:
-                payload[os.getenv('FAL_VIDEO_START_FRAME_FIELD','image_url')]=self._remote_or_upload(request.start_frame_asset,client)
-            if request.end_frame_asset:
-                payload[os.getenv('FAL_VIDEO_END_FRAME_FIELD','end_image_url')]=self._remote_or_upload(request.end_frame_asset,client)
-            ref_field=os.getenv('FAL_VIDEO_REFERENCE_FIELD')
-            if refs and ref_field: payload[ref_field]=refs
+        try:
+            if request.kind=='image' and refs:
+                reference_payload, prompt_suffix = self._image_reference_payload(model, refs)
+                payload.update(reference_payload)
+                payload['prompt'] += prompt_suffix
+            if request.kind=='video':
+                if request.start_frame_asset:
+                    payload[os.getenv('FAL_VIDEO_START_FRAME_FIELD','image_url')]=self._remote_or_upload(request.start_frame_asset,client)
+                if request.end_frame_asset:
+                    payload[os.getenv('FAL_VIDEO_END_FRAME_FIELD','end_image_url')]=self._remote_or_upload(request.end_frame_asset,client)
+                ref_field=os.getenv('FAL_VIDEO_REFERENCE_FIELD')
+                if refs and ref_field: payload[ref_field]=refs
+        except Exception as exc:
+            raise ProviderGenerationError(
+                str(exc), provider=self.name, model=model,
+                diagnostics={
+                    'failure_class':'request_validation',
+                    'provider_settings':self._diagnostic_settings(request=request,model=model,payload=payload,reference_count=len(refs)),
+                },
+            ) from exc
         if request.kind=='image':
             self._progress(
                 f'[fal] {request.shot_id} {request.role}: sending '
@@ -200,8 +228,6 @@ class FalProvider:
                     detail.append(f'{field}={value}')
             summary=f'{name.lower()}{" (" + ", ".join(detail) + ")" if detail else ""}'
             elapsed=int(time.monotonic()-started)
-            # Fal reports queued/in-progress repeatedly. Keep the terminal readable,
-            # but emit a heartbeat at the configured polling cadence.
             if summary != last_status or elapsed % max(1,int(self.poll_interval_seconds)) == 0:
                 self._progress(f'[fal] {request.shot_id} {request.role}: {summary}; {elapsed}s elapsed')
                 last_status=summary
@@ -215,14 +241,22 @@ class FalProvider:
                 client_timeout=self.client_timeout_seconds,
             )
         except Exception as exc:
+            failure_class=_classify_fal_failure(exc)
+            error=ProviderGenerationError(
+                str(exc), provider=self.name, model=model, request_id=request_id,
+                diagnostics={
+                    'failure_class':failure_class,
+                    'provider_settings':self._diagnostic_settings(request=request,model=model,payload=payload,reference_count=len(refs)),
+                },
+            )
             if request_id:
-                exc.add_note(f'fal request id: {request_id}')
-            if 'Timeout' in type(exc).__name__ or 'timeout' in str(exc).lower():
-                exc.add_note(
+                error.add_note(f'fal request id: {request_id}')
+            if failure_class=='timeout':
+                error.add_note(
                     f'Fal request timed out after {self.client_timeout_seconds:g}s. The client attempted cancellation; '
                     'rerun safely resumes from already-saved storyboard shots.'
                 )
-            raise
+            raise error from exc
         uris=[]
         if isinstance(raw,dict):
             for keyname in ('url','image_url','video_url'):
@@ -231,13 +265,21 @@ class FalProvider:
                 for item in raw.get(keyname,[]) if isinstance(raw.get(keyname),list) else []:
                     if isinstance(item,str): uris.append(item)
                     elif isinstance(item,dict) and isinstance(item.get('url'),str): uris.append(item['url'])
-        if not uris: raise ValueError('fal.ai returned no recognizable media URI')
+        if not uris:
+            raise ProviderGenerationError(
+                'fal.ai returned no recognizable media URI', provider=self.name, model=model, request_id=request_id,
+                diagnostics={
+                    'failure_class':'malformed_response',
+                    'response_keys':sorted(raw.keys()) if isinstance(raw,dict) else [],
+                    'provider_settings':self._diagnostic_settings(request=request,model=model,payload=payload,reference_count=len(refs)),
+                },
+            )
         results=[]
         for index, uri in enumerate(uris):
             results.append(MediaResult(
                 uri=self._download_output(uri,request,index),
                 provider=self.name,
                 model=model,
-                metadata={'provider_result':raw,'remote_uri':uri},
+                metadata={'provider_result':raw,'remote_uri':uri,'request_id':request_id},
             ))
         return results
