@@ -246,6 +246,21 @@ def structured_image_prompt(package: EpisodePackage, shot, role: str, instructio
     return json.dumps(payload,ensure_ascii=False,indent=2)
 
 
+def _provider_generation_settings(provider) -> dict:
+    getter=getattr(provider,'generation_settings',None)
+    if not callable(getter): return {}
+    value=getter()
+    return dict(value) if isinstance(value,dict) else {}
+
+
+def _provider_model_for_request(provider, request: MediaRequest, role: str):
+    resolver=getattr(provider,'model_for',None)
+    if callable(resolver):
+        try: return resolver(request)
+        except Exception: pass
+    return getattr(provider,'video_model' if role=='video' else 'image_model',None)
+
+
 class AnimatorService:
     def __init__(self, provider: MediaProvider, telemetry: TelemetrySink|None=None):
         self.provider=provider; self.telemetry=telemetry or TelemetrySink()
@@ -312,7 +327,14 @@ class AnimatorService:
         if role!='video':
             prompt=structured_image_prompt(package,shot,role,prompt,reference_ids,start_id=start_id)
         refs=[self._asset_uri(package,a) for a in reference_ids]
-        request=MediaRequest(kind='video' if role=='video' else 'image',shot_id=shot_id,role=role,prompt=prompt,reference_assets=tuple(refs),start_frame_asset=self._asset_uri(package,start_id) if start_id else None,end_frame_asset=self._asset_uri(package,end_id) if end_id else None,options=shot.provider_options)
+        request=MediaRequest(
+            kind='video' if role=='video' else 'image',shot_id=shot_id,role=role,prompt=prompt,
+            reference_assets=tuple(refs),start_frame_asset=self._asset_uri(package,start_id) if start_id else None,
+            end_frame_asset=self._asset_uri(package,end_id) if end_id else None,
+            duration_seconds=shot.duration_seconds if role=='video' else None,
+            options=dict(shot.provider_options),
+        )
+        provider_generation=_provider_generation_settings(self.provider)
         shot_features={
             'duration_seconds':shot.duration_seconds,
             'purpose':shot.purpose,
@@ -327,7 +349,7 @@ class AnimatorService:
             'frame_plan':shot.frame_plan.model_dump(mode='json'),
             'source_beat_ids':shot.source_beat_ids,
         }
-        attempt=GenerationAttempt(production_id=package.production_id,episode_id=package.episode_id,shot_id=shot_id,role=role,provider=self.provider.name,prompt=prompt,reference_asset_ids=reference_ids,options=shot.provider_options,metadata={'shot_features':shot_features,'reference_inputs':reference_inputs,'boundary_inputs':boundary_inputs})
+        attempt=GenerationAttempt(production_id=package.production_id,episode_id=package.episode_id,shot_id=shot_id,role=role,provider=self.provider.name,prompt=prompt,reference_asset_ids=reference_ids,options=shot.provider_options,metadata={'shot_features':shot_features,'reference_inputs':reference_inputs,'boundary_inputs':boundary_inputs,'provider_generation':provider_generation,'requested_duration_seconds':request.duration_seconds})
         _persist_generation_attempt(package,attempt)
         self.telemetry.emit('generation_attempt.started',**attempt.model_dump(mode='json'))
         started=time.perf_counter()
@@ -336,7 +358,7 @@ class AnimatorService:
         except Exception as exc:
             diagnostics=exc.as_dict() if isinstance(exc,ProviderGenerationError) else {
                 'provider':self.provider.name,
-                'model':getattr(self.provider,'video_model' if role=='video' else 'image_model',None),
+                'model':_provider_model_for_request(self.provider,request,role),
                 'request_id':None,
                 'failure_class':'provider_error',
             }
@@ -350,6 +372,8 @@ class AnimatorService:
                 'reference_inputs':reference_inputs,
                 'boundary_inputs':boundary_inputs,
                 'provider_options':dict(shot.provider_options),
+                'provider_generation':provider_generation,
+                'requested_duration_seconds':request.duration_seconds,
                 'recovery':recovery,
                 'next_isolation_step':recovery.get('next_isolation_step'),
             })
@@ -378,7 +402,12 @@ class AnimatorService:
                 'prompt':prompt,
                 'provider':result.provider,
                 'model':result.model,
+                'mode':metadata.get('generation_mode') or provider_generation.get('mode'),
                 'options':dict(shot.provider_options),
+                'provider_profile':provider_generation,
+                'provider_settings':metadata.get('provider_settings'),
+                'requested_duration_seconds':request.duration_seconds,
+                'actual_media':metadata.get('actual_media'),
                 'reference_asset_ids':list(reference_ids),
                 'reference_inputs':reference_inputs,
                 'boundary_inputs':boundary_inputs,
@@ -396,9 +425,17 @@ class AnimatorService:
                 role=role, kind=asset.kind, provider=asset.provider, model=asset.model,
                 source_asset_ids=source_ids, prompt=prompt, options=shot.provider_options,
                 reference_inputs=reference_inputs, boundary_inputs=boundary_inputs,
-                shot_features=shot_features,
+                shot_features=shot_features, generation_mode=metadata['generation'].get('mode'),
+                provider_settings=metadata.get('provider_settings'), actual_media=metadata.get('actual_media'),
             )
         attempt.outcome='succeeded'; attempt.asset_ids=[a.asset_id for a in assets]; attempt.model=assets[0].model if assets else None; attempt.latency_ms=(time.perf_counter()-started)*1000
+        if assets:
+            attempt.metadata['actual_generation']={
+                'mode':assets[0].metadata.get('generation',{}).get('mode'),
+                'model':assets[0].model,
+                'provider_settings':assets[0].metadata.get('provider_settings'),
+                'actual_media':assets[0].metadata.get('actual_media'),
+            }
         _persist_generation_attempt(package,attempt)
         self.telemetry.emit('generation_attempt.succeeded',**attempt.model_dump(mode='json'))
         return assets
