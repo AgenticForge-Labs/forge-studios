@@ -12,7 +12,7 @@ from .mlt_backend import render_timeline
 from .package_ops import add_reference,approve_asset,bind_inherited_start_frame,register_asset,reject_asset,remove_reference,set_frame_plan,set_prompt
 from .providers import FalProvider,MockProvider
 from .local_config import LocalSecretStore
-from .storyboard import build_storyboard,generate_storyboard_candidates
+from .storyboard import build_storyboard,generate_boundary_candidates
 from .telemetry import TelemetrySink
 from .puppeteer_bridge import dispatch
 from .timeline import save_timeline
@@ -71,22 +71,25 @@ def _storyboard(args):
         animator=AnimatorService(_provider(args.provider,args.output_dir,progress=print,client_timeout_seconds=args.provider_timeout,poll_interval_seconds=args.provider_poll_interval),sink)
         generated=_run_with_failure_checkpoint(
             args.package,p,
-            lambda: generate_storyboard_candidates(
+            lambda: generate_boundary_candidates(
                 p,animator,
-                on_shot_complete=lambda package,shot,assets: save_json(args.package,package),
+                on_frame_complete=lambda package,shot,role,assets: save_json(args.package,package),
                 progress=print,
             ),
         )
-        print(f'generated {len(generated)} storyboard candidate(s)')
+        print(f'generated {len(generated)} boundary-frame candidate(s)')
     if args.auto_approve:
         approved=0
         for scene in p.scenes:
             for shot in scene.shots:
-                if not shot.approved_storyboard_asset_id and shot.storyboard_asset_ids:
-                    approve_asset(p,shot.shot_id,'storyboard',shot.storyboard_asset_ids[-1],sink,note='Batch storyboard auto-approval')
+                if not shot.frame_plan.chain_from_shot_id and not shot.approved_start_frame_asset_id and shot.start_frame_asset_ids:
+                    approve_asset(p,shot.shot_id,'start_frame',shot.start_frame_asset_ids[-1],sink,note='Batch boundary-frame auto-approval')
+                    approved += 1
+                if not shot.approved_end_frame_asset_id and shot.end_frame_asset_ids:
+                    approve_asset(p,shot.shot_id,'end_frame',shot.end_frame_asset_ids[-1],sink,note='Batch boundary-frame auto-approval')
                     approved += 1
         save_json(args.package,p)
-        print(f'approved {approved} storyboard candidate(s)')
+        print(f'approved {approved} boundary frame(s)')
     elif args.generate:
         save_json(args.package,p)
     out=build_storyboard(p,args.out)
@@ -145,12 +148,12 @@ def build_parser():
     p=argparse.ArgumentParser(prog='forge-studios'); sub=p.add_subparsers(dest='cmd',required=True)
     k=sub.add_parser('keys'); ks=k.add_subparsers(dest='action',required=True); st=ks.add_parser('set'); st.add_argument('name'); st.add_argument('value',nargs='?'); ks.add_parser('list'); k.set_defaults(func=_keys)
     v=sub.add_parser('validate'); v.add_argument('path'); v.set_defaults(func=_package)
-    sb=sub.add_parser('storyboard'); sb.add_argument('--package',required=True); sb.add_argument('--out',required=True); sb.add_argument('--generate',action='store_true',help='generate missing storyboard candidates before assembling HTML'); sb.add_argument('--auto-approve',action='store_true',help='approve the latest storyboard candidate for each shot'); sb.add_argument('--asset-manifest',help='asset manifest used to bind missing shot references'); sb.add_argument('--asset-root',help='root directory for manifest storage keys'); sb.add_argument('--provider',choices=['mock','fal'],default='mock'); sb.add_argument('--output-dir',default='outputs'); sb.add_argument('--telemetry',default='.agenticforge/telemetry.jsonl'); sb.add_argument('--provider-timeout',type=float,default=None,help='maximum seconds to wait for one provider request (default: 300 or FAL_CLIENT_TIMEOUT_SECONDS)'); sb.add_argument('--provider-poll-interval',type=float,default=None,help='seconds between provider status updates (default: 5 or FAL_POLL_INTERVAL_SECONDS)'); sb.add_argument('--open',action='store_true',help='open the generated storyboard HTML in the system browser'); sb.set_defaults(func=_storyboard)
-    g=sub.add_parser('generate'); g.add_argument('--package',required=True); g.add_argument('--shot-id',required=True); g.add_argument('--role',choices=['storyboard','start_frame','end_frame','video'],default='storyboard'); g.add_argument('--provider',choices=['mock','fal'],default='mock'); g.add_argument('--output-dir',default='outputs'); g.add_argument('--telemetry',default='.agenticforge/telemetry.jsonl'); g.add_argument('--provider-timeout',type=float,default=None); g.add_argument('--provider-poll-interval',type=float,default=None); g.set_defaults(func=_generate)
+    sb=sub.add_parser('storyboard'); sb.add_argument('--package',required=True); sb.add_argument('--out',required=True); sb.add_argument('--generate',action='store_true',help='generate missing start/end boundary-frame candidate pairs before assembling HTML'); sb.add_argument('--auto-approve',action='store_true',help='approve generated boundary frames after the pair is created (off by default for human review)'); sb.add_argument('--asset-manifest',help='asset manifest used to bind missing canonical/reusable references'); sb.add_argument('--asset-root',help='root directory for manifest storage keys'); sb.add_argument('--provider',choices=['mock','fal'],default='mock'); sb.add_argument('--output-dir',default='outputs'); sb.add_argument('--telemetry',default='.agenticforge/telemetry.jsonl'); sb.add_argument('--provider-timeout',type=float,default=None,help='maximum seconds to wait for one provider request (default: 300 or FAL_CLIENT_TIMEOUT_SECONDS)'); sb.add_argument('--provider-poll-interval',type=float,default=None,help='seconds between provider status updates (default: 5 or FAL_POLL_INTERVAL_SECONDS)'); sb.add_argument('--open',action='store_true',help='open the generated boundary-frame storyboard HTML in the system browser'); sb.set_defaults(func=_storyboard)
+    g=sub.add_parser('generate'); g.add_argument('--package',required=True); g.add_argument('--shot-id',required=True); g.add_argument('--role',choices=['storyboard','start_frame','end_frame','video'],default='start_frame'); g.add_argument('--provider',choices=['mock','fal'],default='mock'); g.add_argument('--output-dir',default='outputs'); g.add_argument('--telemetry',default='.agenticforge/telemetry.jsonl'); g.add_argument('--provider-timeout',type=float,default=None); g.add_argument('--provider-poll-interval',type=float,default=None); g.set_defaults(func=_generate)
     a=sub.add_parser('approve'); a.add_argument('--package',required=True); a.add_argument('--shot-id',required=True); a.add_argument('--kind',choices=['storyboard','start_frame','end_frame','clip','take'],required=True); a.add_argument('--asset-id',required=True); a.add_argument('--telemetry',default='.agenticforge/telemetry.jsonl'); _review_args(a); a.set_defaults(func=_approve)
     rj=sub.add_parser('reject'); rj.add_argument('--package',required=True); rj.add_argument('--shot-id',required=True); rj.add_argument('--asset-id',required=True); rj.add_argument('--telemetry',default='.agenticforge/telemetry.jsonl'); _review_args(rj,rejection=True); rj.set_defaults(func=_reject)
     d=sub.add_parser('plan'); d.add_argument('--package',required=True); d.set_defaults(func=_plan)
-    au=sub.add_parser('auto'); au.add_argument('--package',required=True); au.add_argument('--provider',choices=['mock','fal'],default='mock'); au.add_argument('--output-dir',default='outputs'); au.add_argument('--telemetry',default='.agenticforge/telemetry.jsonl'); au.add_argument('--auto-approve-storyboards',action='store_true'); au.add_argument('--auto-approve-frames',action='store_true'); au.add_argument('--auto-approve-clips',action='store_true'); au.add_argument('--auto-approve-takes',action='store_true'); au.add_argument('--allow-video',action='store_true'); au.add_argument('--allow-physical',action='store_true'); au.add_argument('--puppeteer-command'); au.add_argument('--max-actions',type=int,default=100); au.set_defaults(func=_auto)
+    au=sub.add_parser('auto'); au.add_argument('--package',required=True); au.add_argument('--provider',choices=['mock','fal'],default='mock'); au.add_argument('--output-dir',default='outputs'); au.add_argument('--telemetry',default='.agenticforge/telemetry.jsonl'); au.add_argument('--auto-approve-storyboards',action='store_true',help='legacy option; ignored by boundary-first plans'); au.add_argument('--auto-approve-frames',action='store_true'); au.add_argument('--auto-approve-clips',action='store_true'); au.add_argument('--auto-approve-takes',action='store_true'); au.add_argument('--allow-video',action='store_true'); au.add_argument('--allow-physical',action='store_true'); au.add_argument('--puppeteer-command'); au.add_argument('--max-actions',type=int,default=100); au.set_defaults(func=_auto)
     ph=sub.add_parser('physical'); ph.add_argument('--package',required=True); ph.add_argument('--shot-id',required=True); ph.add_argument('--command'); ph.add_argument('--out',required=True); ph.add_argument('--telemetry',default='.agenticforge/telemetry.jsonl'); ph.set_defaults(func=_physical)
     ep=sub.add_parser('edit-plan'); ep.add_argument('--package',required=True); ep.add_argument('--out',required=True); ep.set_defaults(func=_edit_plan)
     rr=sub.add_parser('render'); rr.add_argument('--package',required=True); rr.add_argument('--out',required=True); rr.add_argument('--ffmpeg',default='ffmpeg'); rr.add_argument('--telemetry',default='.agenticforge/telemetry.jsonl'); rr.set_defaults(func=_render)
