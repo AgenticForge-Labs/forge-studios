@@ -95,7 +95,8 @@ def test_storyboard_generation_keeps_design_anchor_and_locked_constraints():
     assert 'shot_type: rear three-quarter follow view' in prompt
     assert 'Required visible elements: open gap between freestanding monoliths; broad steps; dirt path.' in prompt
     assert 'Forbidden additions or substitutions: doorway; fireplace; fire.' in prompt
-    assert 'supplied canonical references as authoritative' in prompt
+    assert 'Treat supplied reusable references according to their explicit production roles' in prompt
+    assert '"production_role": "canonical_reference"' in prompt
 
 
 def test_director_can_fully_auto_run_when_explicitly_allowed(tmp_path):

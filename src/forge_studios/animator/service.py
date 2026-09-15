@@ -32,7 +32,7 @@ def production_prompt_suffix(shot, role: str) -> str:
     must_not_show=_constraint_values(shot,'must_not_show')
     if must_not_show: lines.append('Forbidden additions or substitutions: '+'; '.join(must_not_show)+'.')
     if shot.continuity_asset_ids:
-        lines.append('Treat the supplied canonical references as authoritative for character identity and established site geometry; do not replace established architecture with a generic structure.')
+        lines.append('Treat supplied reusable references according to their explicit production roles; identity/site design references do not dictate the source pose or camera angle.')
     if role=='storyboard':
         lines.append('Depict this shot\'s specific settled state and composition, not a generic character portrait or unrelated establishing view.')
     if not lines: return ''
@@ -67,12 +67,6 @@ def assert_generation_preflight(package: EpisodePackage) -> None:
 
 
 def reference_isolation_plan(reference_asset_ids: list[str]) -> dict:
-    """Build a deterministic single-then-pairwise plan for diagnosing bad reference combinations.
-
-    The plan is diagnostic metadata only; Studios never spends additional provider
-    calls automatically. It gives the operator an exact next subset to try while
-    keeping the original reference ordering visible.
-    """
     ids=list(dict.fromkeys(reference_asset_ids))
     steps=[]
     for asset_id in ids:
@@ -88,7 +82,6 @@ def reference_isolation_plan(reference_asset_ids: list[str]) -> dict:
 
 
 def failure_recovery_plan(failure_class: str|None, reference_asset_ids: list[str]) -> dict:
-    """Choose the next deterministic recovery action without silently retrying."""
     if failure_class in {'timeout','transport'}:
         return {
             'action':'retry_same_request',
@@ -109,31 +102,104 @@ def failure_recovery_plan(failure_class: str|None, reference_asset_ids: list[str
     }
 
 
-def _reference_purpose(package: EpisodePackage, shot, asset_id: str, *, start_id: str|None) -> str:
+def _continuity_role(asset: AssetRecord) -> str:
+    role=(asset.role or '').casefold()
+    tags={tag.casefold() for tag in asset.tags}
+    entity=(asset.entity_id or '').casefold()
+    generated=asset.authority=='generated' or asset.status=='approved'
+    if 'route' in role or 'transit' in role or 'route' in tags or 'transit' in tags:
+        return 'route_transit'
+    if entity.startswith('character_') or 'character' in tags:
+        return 'reusable_character_pose' if generated and asset.status!='canon' else 'canonical_identity'
+    if entity.startswith('place_') or 'place' in tags:
+        return 'reusable_site_view' if generated and asset.status!='canon' else 'canonical_site_geometry'
+    return 'approved_reusable_reference' if asset.status=='approved' else 'canonical_reference'
+
+
+def _validate_continuity_references(package: EpisodePackage, shot) -> list[AssetRecord]:
+    """Keep generic continuity refs distinct from storyboard and boundary-frame inputs."""
+    assets=[]
+    for asset_id in shot.continuity_asset_ids:
+        try:
+            asset=package.find_asset(asset_id)
+        except KeyError as exc:
+            raise ValueError(f'Shot {shot.shot_id!r} continuity reference {asset_id!r} is not present in the package.') from exc
+        if asset.kind!='reference_image':
+            raise ValueError(
+                f'Shot {shot.shot_id!r} continuity_asset_ids may contain only reusable reference_image assets; '
+                f'{asset_id!r} is {asset.kind!r}. Use approved_storyboard_asset_id for composition guides and '
+                'frame_plan/approved start/end fields for boundary images.'
+            )
+        if asset.status not in {'canon','approved'}:
+            raise ValueError(
+                f'Shot {shot.shot_id!r} continuity reference {asset_id!r} has status {asset.status!r}; '
+                'only canon or human-approved reusable references may be sent to a provider.'
+            )
+        assets.append(asset)
+    return assets
+
+
+def _reference_input(package: EpisodePackage, shot, asset_id: str, *, start_id: str|None) -> dict:
     if asset_id == shot.approved_storyboard_asset_id:
-        return 'approved planning/composition guide for this shot; use layout, not as a replacement for canonical identity or site design'
+        return {
+            'asset_id':asset_id,
+            'production_role':'storyboard_composition',
+            'use':'approved planning/composition guide; use layout only, while reusable identity/site references remain design authority',
+        }
     if start_id and asset_id == start_id:
-        return 'exact approved start frame; preserve its identity, geometry, lighting, props, scale, and camera axis while changing only the intended end-state pose/composition'
-    try:
-        asset=package.find_asset(asset_id)
-    except KeyError:
-        return 'production reference'
-    role=getattr(asset,'role',None) or asset.metadata.get('role') if isinstance(asset.metadata,dict) else None
-    if asset.kind=='reference_image':
-        suffix=f' ({role})' if role else ''
-        return f'canonical or approved identity/site reference{suffix}; preserve design facts while following this shot-specific pose and camera'
-    return f'production reference ({asset.kind})'
+        inherited=bool(shot.frame_plan.chain_from_shot_id)
+        return {
+            'asset_id':asset_id,
+            'production_role':'approved_predecessor_endpoint' if inherited else 'approved_start_frame',
+            'use':'exact approved boundary frame; preserve identity, geometry, lighting, props, scale, and camera axis while changing only the intended destination state',
+        }
+    asset=package.find_asset(asset_id)
+    production_role=_continuity_role(asset) if asset.kind=='reference_image' else f'production_{asset.kind}'
+    role_suffix=f' ({asset.role})' if asset.role else ''
+    uses={
+        'canonical_identity':'character identity, anatomy, proportions, materials, colors, costume and distinctive design; do not copy the source pose or camera',
+        'reusable_character_pose':'approved prior character pose/view useful for continuity; preserve identity but follow the current shot blocking and camera',
+        'canonical_site_geometry':'site architecture, geometry, materials, scale and spatial relationships; compose only a new view consistent with this geometry',
+        'reusable_site_view':'approved prior site view useful for continuity; preserve established geometry and current camera-axis relationships',
+        'route_transit':'approved route/transit geography and direction; use only when the route is visible',
+        'approved_reusable_reference':'approved reusable design reference',
+        'canonical_reference':'canonical reusable design reference',
+    }
+    return {
+        'asset_id':asset_id,
+        'production_role':production_role,
+        'entity_id':asset.entity_id,
+        'catalog_role':asset.role,
+        'use':uses.get(production_role,'production reference')+role_suffix,
+    }
+
+
+def _reference_inputs(package: EpisodePackage, shot, reference_ids: list[str], *, start_id: str|None) -> list[dict]:
+    values=[]
+    for index,asset_id in enumerate(reference_ids,1):
+        item=_reference_input(package,shot,asset_id,start_id=start_id)
+        values.append({'image':f'Image {index}',**item})
+    return values
+
+
+def _boundary_inputs(shot, *, start_id: str|None, end_id: str|None) -> list[dict]:
+    values=[]
+    if start_id:
+        values.append({
+            'asset_id':start_id,
+            'production_role':'approved_predecessor_endpoint' if shot.frame_plan.chain_from_shot_id else 'approved_start_frame',
+            'provider_role':'video_start_frame',
+        })
+    if end_id:
+        values.append({
+            'asset_id':end_id,
+            'production_role':'approved_end_frame',
+            'provider_role':'video_end_frame',
+        })
+    return values
 
 
 def structured_image_prompt(package: EpisodePackage, shot, role: str, instruction: str, reference_ids: list[str], *, start_id: str|None=None) -> str:
-    """Serialize image-only production context as structured JSON."""
-    references=[]
-    for index, asset_id in enumerate(reference_ids,1):
-        references.append({
-            'image': f'Image {index}',
-            'asset_id': asset_id,
-            'use': _reference_purpose(package,shot,asset_id,start_id=start_id),
-        })
     payload={
         'task':'generate one production image',
         'frame_role':role,
@@ -147,7 +213,7 @@ def structured_image_prompt(package: EpisodePackage, shot, role: str, instructio
             'must_show':_constraint_values(shot,'must_show'),
             'must_not_show':_constraint_values(shot,'must_not_show'),
         },
-        'reference_images':references,
+        'reference_images':_reference_inputs(package,shot,reference_ids,start_id=start_id),
         'continuity':{
             'preserve_character_identity':True,
             'preserve_established_site_geometry':True,
@@ -181,7 +247,8 @@ class AnimatorService:
             image_anchor=shot.image_prompt.strip()
             if image_anchor not in prompt:
                 prompt += '\n\nVisual design anchor from the EpisodePackage: '+image_anchor
-        reference_ids=list(shot.continuity_asset_ids)
+        continuity_assets=_validate_continuity_references(package,shot)
+        reference_ids=[asset.asset_id for asset in continuity_assets]
         start_id=shot.approved_start_frame_asset_id or shot.frame_plan.start_asset_id
         end_id=shot.approved_end_frame_asset_id or shot.frame_plan.end_asset_id
         if shot.frame_plan.mode=='chained_start':
@@ -210,7 +277,7 @@ class AnimatorService:
             if storyboard_id not in reference_ids:
                 reference_ids.append(storyboard_id)
                 prompt += (f'\n\nReference image {len(reference_ids)} is this shot\'s approved storyboard. '
-                           'Keep its composition and spatial layout; canonical references still fix identity and site design.')
+                           'Keep its composition and spatial layout; reusable identity/site references still fix design.')
         if role=='end_frame' and shot.frame_plan.mode=='start_and_end' and not shot.approved_start_frame_asset_id:
             raise ValueError(f'Shot {shot_id!r} needs an approved start frame before generating its end frame.')
         if role=='end_frame' and start_id and start_id not in reference_ids:
@@ -219,6 +286,8 @@ class AnimatorService:
                        'Preserve its character design, architecture, light, props, and camera axis; change only the '
                        'intended pose and ending composition.')
         prompt += production_prompt_suffix(shot,role)
+        reference_inputs=_reference_inputs(package,shot,reference_ids,start_id=start_id)
+        boundary_inputs=_boundary_inputs(shot,start_id=start_id,end_id=end_id)
         if role!='video':
             prompt=structured_image_prompt(package,shot,role,prompt,reference_ids,start_id=start_id)
         refs=[self._asset_uri(package,a) for a in reference_ids]
@@ -237,7 +306,7 @@ class AnimatorService:
             'frame_plan':shot.frame_plan.model_dump(mode='json'),
             'source_beat_ids':shot.source_beat_ids,
         }
-        attempt=GenerationAttempt(production_id=package.production_id,episode_id=package.episode_id,shot_id=shot_id,role=role,provider=self.provider.name,prompt=prompt,reference_asset_ids=reference_ids,options=shot.provider_options,metadata={'shot_features':shot_features})
+        attempt=GenerationAttempt(production_id=package.production_id,episode_id=package.episode_id,shot_id=shot_id,role=role,provider=self.provider.name,prompt=prompt,reference_asset_ids=reference_ids,options=shot.provider_options,metadata={'shot_features':shot_features,'reference_inputs':reference_inputs,'boundary_inputs':boundary_inputs})
         self.telemetry.emit('generation_attempt.started',**attempt.model_dump(mode='json'))
         started=time.perf_counter()
         try:
@@ -256,6 +325,8 @@ class AnimatorService:
                 'role':role,
                 'prompt':prompt,
                 'reference_asset_ids':list(reference_ids),
+                'reference_inputs':reference_inputs,
+                'boundary_inputs':boundary_inputs,
                 'provider_options':dict(shot.provider_options),
                 'recovery':recovery,
                 'next_isolation_step':recovery.get('next_isolation_step'),
@@ -267,7 +338,8 @@ class AnimatorService:
                     'generation_prompt.rejected', production_id=package.production_id, episode_id=package.episode_id,
                     shot_id=shot_id, role=role, provider=self.provider.name,
                     code='PROVIDER_CONTENT_POLICY_REJECTION', request_id=diagnostics.get('request_id'),
-                    reference_asset_ids=list(reference_ids), next_isolation_step=recovery.get('next_isolation_step'),
+                    reference_asset_ids=list(reference_ids), reference_inputs=reference_inputs,
+                    next_isolation_step=recovery.get('next_isolation_step'),
                     guidance='Do not rewrite the story automatically. Diagnose prompt versus reference-image false positives using the recorded isolation plan.',
                 )
                 exc.add_note('Provider content-policy rejection: use failure_diagnostics.recovery to isolate prompt/reference causes; Forge Studios does not use an LLM to rewrite prompts.')
@@ -285,6 +357,8 @@ class AnimatorService:
                 'model':result.model,
                 'options':dict(shot.provider_options),
                 'reference_asset_ids':list(reference_ids),
+                'reference_inputs':reference_inputs,
+                'boundary_inputs':boundary_inputs,
                 'start_asset_id':start_id,
                 'end_asset_id':end_id,
                 'shot_features':shot_features,
@@ -298,6 +372,7 @@ class AnimatorService:
                 shot_id=shot_id, attempt_id=attempt.attempt_id, asset_id=asset.asset_id,
                 role=role, kind=asset.kind, provider=asset.provider, model=asset.model,
                 source_asset_ids=source_ids, prompt=prompt, options=shot.provider_options,
+                reference_inputs=reference_inputs, boundary_inputs=boundary_inputs,
                 shot_features=shot_features,
             )
         attempt.outcome='succeeded'; attempt.asset_ids=[a.asset_id for a in assets]; attempt.model=assets[0].model if assets else None; attempt.latency_ms=(time.perf_counter()-started)*1000
@@ -315,11 +390,11 @@ class AnimatorService:
         if shot.visual_constraints: parts.append('Visual constraints: '+json.dumps(shot.visual_constraints,ensure_ascii=False))
         if shot.performance_intent: parts.append('Performance intent: '+json.dumps(shot.performance_intent,ensure_ascii=False))
         if role=='video':
-            parts.append('Describe only temporal change and preserve supplied start/end frames and canonical references.')
+            parts.append('Describe only temporal change and preserve supplied start/end frames and reusable design references.')
         elif role=='start_frame':
-            parts.append('Create the exact approved starting composition for the shot. Preserve canonical references, anatomy, architecture, scale, and spatial relationships.')
+            parts.append('Create the exact approved starting composition for the shot. Preserve reusable references, anatomy, architecture, scale, and spatial relationships.')
         elif role=='end_frame':
-            parts.append('Create the exact destination composition the shot must reach. Preserve canonical references, anatomy, architecture, scale, and spatial relationships.')
+            parts.append('Create the exact destination composition the shot must reach. Preserve reusable references, anatomy, architecture, scale, and spatial relationships.')
         else:
-            parts.append('Create a production storyboard still for this shot. Preserve canonical references, anatomy, architecture, scale, and spatial relationships.')
+            parts.append('Create a production storyboard still for this shot. Preserve reusable references, anatomy, architecture, scale, and spatial relationships.')
         return '\n\n'.join(parts)
