@@ -5,9 +5,11 @@ from types import SimpleNamespace
 import pytest
 
 from forge_studios import entrypoint
+from forge_studios.animator import AnimatorService
+from forge_studios.contracts import AssetRecord, EpisodePackage, FramePlan, Scene, Shot
 from forge_studios.generation import GenerationMode, parse_generation_mode, resolve_generation_profile
-from forge_studios.providers.base import MediaRequest
-from forge_studios.providers.fal import FalProvider
+from forge_studios.providers.base import MediaRequest, MediaResult
+from forge_studios.providers.fal import FalProvider, image_model_profile, resolve_supported_image_size
 
 
 class _LocalConfig:
@@ -44,7 +46,7 @@ def test_omitted_mode_resolves_to_normal():
     assert profile.video.resolution == "1080p"
 
 
-def test_cheap_profile_resolves_exact_models_and_768_by_432():
+def test_cheap_profile_keeps_semantic_768_by_432_target():
     profile = resolve_generation_profile("cheap")
     assert profile.image.generate_model == "fal-ai/flux-2/flash"
     assert profile.image.edit_model == "fal-ai/flux-2/flash/edit"
@@ -86,16 +88,32 @@ def test_provider_selects_t2i_without_refs_and_edit_model_with_refs():
     assert provider.model_for(edit) == "fal-ai/flux-2/flash/edit"
 
 
-def test_cheap_image_edit_requests_exact_768_by_432(monkeypatch):
-    seen = _install_fake_fal(monkeypatch, {"images": [{"url": "/tmp/frame.png", "width": 768, "height": 432}]})
+def test_flux_flash_cheap_target_resolves_to_smallest_supported_exact_16_by_9():
+    assert resolve_supported_image_size("fal-ai/flux-2/flash", 768, 432) == (912, 513)
+    assert resolve_supported_image_size("fal-ai/flux-2/flash/edit", 768, 432) == (912, 513)
+    assert resolve_supported_image_size("fal-ai/flux-2/flash", 1024, 576) == (1024, 576)
+
+
+def test_cheap_image_edit_uses_supported_fallback_and_records_target_and_actual(monkeypatch):
+    seen = _install_fake_fal(monkeypatch, {"images": [{"url": "/tmp/frame.png", "width": 912, "height": 513}]})
     provider = FalProvider(mode="cheap", local_config=_LocalConfig())
     result = provider.generate(MediaRequest(
         kind="image", shot_id="s", prompt="compose", reference_assets=("/tmp/ref.png",)
     ))[0]
     assert seen["model"] == "fal-ai/flux-2/flash/edit"
-    assert seen["arguments"]["image_size"] == {"width": 768, "height": 432}
+    assert seen["arguments"]["image_size"] == {"width": 912, "height": 513}
     assert result.metadata["generation_mode"] == "cheap"
-    assert result.metadata["actual_media"] == {"width": 768, "height": 432}
+    assert result.metadata["provider_settings"]["image_target_size"] == {"width": 768, "height": 432}
+    assert result.metadata["actual_media"] == {"width": 912, "height": 513}
+
+
+def test_flash_edit_rejects_more_than_four_references_instead_of_silently_dropping_them():
+    assert image_model_profile("fal-ai/flux-2/flash/edit").max_references == 4
+    with pytest.raises(ValueError, match="at most 4"):
+        FalProvider._image_reference_payload(
+            "fal-ai/flux-2/flash/edit",
+            [f"https://example.test/{index}.png" for index in range(5)],
+        )
 
 
 def test_explicit_image_size_overrides_cheap_default(monkeypatch):
@@ -154,6 +172,46 @@ def test_explicit_video_size_overrides_cheap_mode(monkeypatch):
         options={"video_size": {"width": 960, "height": 540}, "num_frames": 240},
     ))
     assert seen["arguments"]["video_size"] == {"width": 960, "height": 540}
+
+
+def test_animator_passes_shot_duration_to_video_provider_and_persists_generation_provenance():
+    class CaptureProvider:
+        name = "capture"
+        def __init__(self):
+            self.request = None
+        def generation_settings(self):
+            return {"mode": "cheap", "video_model": "test-video", "explicit_overrides": []}
+        def model_for(self, _request):
+            return "test-video"
+        def generate(self, request):
+            self.request = request
+            return [MediaResult(
+                uri="/tmp/video.mp4", provider=self.name, model="test-video",
+                metadata={
+                    "generation_mode": "cheap",
+                    "provider_settings": {"video_size": {"width": 768, "height": 432}},
+                    "actual_media": {"width": 768, "height": 432, "duration": 20.0, "fps": 24},
+                },
+            )]
+
+    shot = Shot(
+        shot_id="v", duration_seconds=20, visual="Ember walks forward.", render_strategy="generated_video",
+        frame_plan=FramePlan(mode="start_only", start_asset_id="start"),
+        approved_start_frame_asset_id="start",
+    )
+    package = EpisodePackage(
+        production_id="ep", episode_id="ep", title="test",
+        scenes=[Scene(scene_id="scene", shots=[shot])],
+        assets=[AssetRecord(asset_id="start", kind="start_frame", uri="/tmp/start.png", status="approved")],
+    )
+    provider = CaptureProvider()
+    asset = AnimatorService(provider).generate(package, "v", role="video")[0]
+    assert provider.request.duration_seconds == 20
+    assert asset.metadata["generation"]["mode"] == "cheap"
+    assert asset.metadata["generation"]["model"] == "test-video"
+    assert asset.metadata["generation"]["provider_settings"]["video_size"] == {"width": 768, "height": 432}
+    assert asset.metadata["generation"]["actual_media"]["duration"] == 20.0
+    assert package.trace["generation_attempts"][-1]["metadata"]["requested_duration_seconds"] == 20
 
 
 def test_studio_cli_consumes_mode_and_propagates_semantic_mode_to_worlds(monkeypatch):
