@@ -54,10 +54,52 @@ def predecessor_for(package: EpisodePackage, shot: Shot) -> Shot:
     return shots[positions[chain_from]]
 
 
+def _editorial_boundary(shot: Shot) -> str:
+    """Return the explicit reason this shot starts on a new visual setup, if any."""
+    intent = shot.edit_intent if isinstance(shot.edit_intent, dict) else {}
+    value = intent.get('editorial_boundary')
+    return str(value).strip() if value is not None else ''
+
+
 def validate_frame_plans(package: EpisodePackage, *, require_approved_end_frames: bool = False, shot_id: str | None = None) -> list[FramePlanIssue]:
     issues: list[FramePlanIssue] = []
     shots = ordered_shots(package)
     selected = [shot for shot in shots if shot_id is None or shot.shot_id == shot_id]
+    positions = {item.shot_id: index for index, item in enumerate(shots)}
+
+    # Generated-video units are defined by their boundary frames.  If Worlds split
+    # a continuous performance into adjacent units without declaring a real edit,
+    # the later unit must begin from the exact approved endpoint of the first.  This
+    # applies across scene boundaries too: scene is a dramatic grouping, not an
+    # instruction to throw away visual continuity.
+    for shot in selected:
+        if shot.render_strategy != 'generated_video':
+            continue
+        if shot.frame_plan.mode != 'start_and_end':
+            issues.append(FramePlanIssue(
+                'GENERATED_VIDEO_REQUIRES_START_AND_END',
+                f"Shot {shot.shot_id!r} is generated video and must use frame_plan.mode='start_and_end'.",
+                shot.shot_id,
+            ))
+            continue
+        index = positions[shot.shot_id]
+        if index == 0:
+            continue
+        predecessor = shots[index - 1]
+        if predecessor.render_strategy != 'generated_video':
+            continue
+        if _editorial_boundary(shot):
+            continue
+        if shot.frame_plan.chain_from_shot_id != predecessor.shot_id:
+            issues.append(FramePlanIssue(
+                'CONTINUOUS_VIDEO_ENDPOINT_HANDOFF_REQUIRED',
+                f"Shot {shot.shot_id!r} follows generated-video shot {predecessor.shot_id!r} without an "
+                "editorial_boundary, so its start frame must inherit that predecessor's approved end frame. "
+                "Either set frame_plan.chain_from_shot_id to the immediate predecessor or declare the actual cut/setup change.",
+                shot.shot_id,
+                predecessor.shot_id,
+            ))
+
     for shot in selected:
         inherits_endpoint = (
             shot.frame_plan.mode == 'chained_start'
@@ -72,7 +114,6 @@ def validate_frame_plans(package: EpisodePackage, *, require_approved_end_frames
             continue
         endpoint = predecessor.approved_end_frame_asset_id
         if shot.frame_plan.mode == 'start_and_end':
-            positions = {item.shot_id: index for index, item in enumerate(shots)}
             if positions[predecessor.shot_id] != positions[shot.shot_id] - 1:
                 issues.append(FramePlanIssue(
                     'START_AND_END_NONADJACENT_PREDECESSOR',
