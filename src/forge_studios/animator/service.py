@@ -1,17 +1,47 @@
 from __future__ import annotations
-import json, time
+import json, re, time
 from uuid import uuid4
 from ..contracts import AssetRecord, EpisodePackage, GenerationAttempt
+from ..frame_plan import FramePlanError, FramePlanIssue, predecessor_for, validate_frame_plans
 from ..providers.base import MediaProvider, MediaRequest
 from ..telemetry import TelemetrySink
 
 ROLE_KIND={'storyboard':'storyboard_image','start_frame':'start_frame','end_frame':'end_frame','video':'generated_clip'}
 ROLE_PROMPT={'storyboard':'storyboard_prompt','start_frame':'start_frame_prompt','end_frame':'end_frame_prompt','video':'video_prompt'}
 
+def storyboard_fallback_prompt(shot) -> str:
+    """Use shot action and its settled result when no hand-authored board prompt exists."""
+    ending=getattr(shot,'end_frame_prompt',None) if shot.render_strategy in {'generated_video','hybrid'} else None
+    blocking=shot.performance_intent.get('blocking') or []
+    if not isinstance(blocking,list): blocking=[]
+    state=(ending.strip() if isinstance(ending,str) and ending.strip()
+           else blocking[-1] if blocking else shot.image_prompt or shot.visual)
+    camera='; '.join(f'{key}: {shot.camera[key]}' for key in ('framing','axis','composition')
+                     if isinstance(shot.camera.get(key),str) and shot.camera[key].strip())
+    parts=[
+        'Create one representative storyboard still, not a collage or motion-blurred sequence. '
+        'It may show a stable result of the movement rather than movement itself.',
+        f'Representative settled state and pose: {state}',
+        f'Shot context: {shot.visual}',
+    ]
+    if camera: parts.append(f'Camera composition: {camera}')
+    parts.append('Use canonical character references for identity, anatomy, costume, materials, and style, '
+                 'not their default pose or camera angle. Repose visible four-legged characters for this shot '
+                 'with grounded paws; preserve the established location geometry.')
+    prompt='\n\n'.join(parts)
+    return re.sub(r'\bunconscious\b','resting peacefully with eyes closed',prompt,flags=re.IGNORECASE)
+
+def assert_generation_preflight(package: EpisodePackage) -> None:
+    """Keep every media entrypoint from spending work on a known blocked package."""
+    report=package.trace.get('production_preflight') if isinstance(package.trace,dict) else None
+    if package.status=='blocked' or (isinstance(report,dict) and report.get('is_valid') is False):
+        raise ValueError('EpisodePackage has hard production-preflight errors; fix and revalidate it before media generation.')
+
 class AnimatorService:
     def __init__(self, provider: MediaProvider, telemetry: TelemetrySink|None=None):
         self.provider=provider; self.telemetry=telemetry or TelemetrySink()
     def generate(self, package: EpisodePackage, shot_id: str, *, role: str='storyboard') -> list[AssetRecord]:
+        assert_generation_preflight(package)
         shot=package.find_shot(shot_id)
         if role not in ROLE_KIND: raise ValueError(f'unknown generation role {role!r}')
         if shot.execution_route=='puppeteer' and role!='storyboard':
@@ -19,13 +49,47 @@ class AnimatorService:
         if role=='video' and shot.render_strategy not in {'generated_video','hybrid'}:
             raise ValueError('shot is not configured for generated video')
         specific=getattr(shot,ROLE_PROMPT[role],None)
-        prompt=specific or (shot.image_prompt if role!='video' else None) or self._default_prompt(shot, role)
-        refs=[self._asset_uri(package,a) for a in shot.continuity_asset_ids]
+        prompt=(specific or storyboard_fallback_prompt(shot)) if role=='storyboard' else (
+            specific or (shot.image_prompt if role!='video' else None) or self._default_prompt(shot,role)
+        )
+        reference_ids=list(shot.continuity_asset_ids)
         start_id=shot.approved_start_frame_asset_id or shot.frame_plan.start_asset_id
         end_id=shot.approved_end_frame_asset_id or shot.frame_plan.end_asset_id
-        if shot.frame_plan.mode=='chained_start' and not start_id:
-            previous=package.find_shot(shot.frame_plan.chain_from_shot_id or '')
-            start_id=previous.approved_end_frame_asset_id or previous.approved_storyboard_asset_id
+        if shot.frame_plan.mode=='chained_start':
+            if role=='video':
+                issues=validate_frame_plans(package,require_approved_end_frames=True,shot_id=shot_id)
+                if issues:
+                    raise FramePlanError(issues[0])
+            previous=predecessor_for(package,shot)
+            start_id=previous.approved_end_frame_asset_id
+        if shot.frame_plan.mode=='start_and_end' and shot.frame_plan.chain_from_shot_id and role!='storyboard':
+            if role=='start_frame':
+                raise ValueError(f'Shot {shot_id!r} inherits its start frame from the predecessor; bind that endpoint instead of generating a new start frame.')
+            issues=validate_frame_plans(package,require_approved_end_frames=True,shot_id=shot_id)
+            if issues: raise FramePlanError(issues[0])
+            previous=predecessor_for(package,shot)
+            endpoint=previous.approved_end_frame_asset_id
+            if shot.approved_start_frame_asset_id != endpoint:
+                raise FramePlanError(FramePlanIssue(
+                    'START_AND_END_INHERITED_START_NOT_BOUND',
+                    f"Shot {shot_id!r} must bind predecessor {previous.shot_id!r}'s approved endpoint as its start frame.",
+                    shot_id,previous.shot_id,endpoint,
+                ))
+            start_id=endpoint
+        if role=='start_frame' and shot.approved_storyboard_asset_id:
+            storyboard_id=shot.approved_storyboard_asset_id
+            if storyboard_id not in reference_ids:
+                reference_ids.append(storyboard_id)
+                prompt += (f'\n\nReference image {len(reference_ids)} is this shot\'s approved storyboard. '
+                           'Keep its composition and spatial layout; canonical references still fix identity and site design.')
+        if role=='end_frame' and shot.frame_plan.mode=='start_and_end' and not shot.approved_start_frame_asset_id:
+            raise ValueError(f'Shot {shot_id!r} needs an approved start frame before generating its end frame.')
+        if role=='end_frame' and start_id and start_id not in reference_ids:
+            reference_ids.append(start_id)
+            prompt += (f'\n\nReference image {len(reference_ids)} is this shot\'s approved start frame. '
+                       'Preserve its character design, architecture, light, props, and camera axis; change only the '
+                       'intended pose and ending composition.')
+        refs=[self._asset_uri(package,a) for a in reference_ids]
         request=MediaRequest(kind='video' if role=='video' else 'image',shot_id=shot_id,role=role,prompt=prompt,reference_assets=tuple(refs),start_frame_asset=self._asset_uri(package,start_id) if start_id else None,end_frame_asset=self._asset_uri(package,end_id) if end_id else None,options=shot.provider_options)
         shot_features={
             'duration_seconds':shot.duration_seconds,
@@ -41,17 +105,25 @@ class AnimatorService:
             'frame_plan':shot.frame_plan.model_dump(mode='json'),
             'source_beat_ids':shot.source_beat_ids,
         }
-        attempt=GenerationAttempt(production_id=package.production_id,episode_id=package.episode_id,shot_id=shot_id,role=role,provider=self.provider.name,prompt=prompt,reference_asset_ids=shot.continuity_asset_ids,options=shot.provider_options,metadata={'shot_features':shot_features})
+        attempt=GenerationAttempt(production_id=package.production_id,episode_id=package.episode_id,shot_id=shot_id,role=role,provider=self.provider.name,prompt=prompt,reference_asset_ids=reference_ids,options=shot.provider_options,metadata={'shot_features':shot_features})
         self.telemetry.emit('generation_attempt.started',**attempt.model_dump(mode='json'))
         started=time.perf_counter()
         try:
             results=self.provider.generate(request)
         except Exception as exc:
+            if 'content_policy_violation' in str(exc):
+                self.telemetry.emit(
+                    'generation_prompt.rejected', production_id=package.production_id, episode_id=package.episode_id,
+                    shot_id=shot_id, role=role, provider=self.provider.name,
+                    code='PROVIDER_CONTENT_POLICY_REJECTION',
+                    guidance='Revise provider-facing prompts in Forge Worlds; Forge Studios does not use an LLM to rewrite prompts.',
+                )
+                exc.add_note('Provider content-policy rejection: revise provider-facing prompts in Forge Worlds; Forge Studios does not use an LLM to rewrite prompts.')
             attempt.outcome='failed'; attempt.error=str(exc); attempt.latency_ms=(time.perf_counter()-started)*1000
             self.telemetry.emit('generation_attempt.failed',**attempt.model_dump(mode='json')); raise
         assets=[]
         for result in results:
-            source_ids=shot.continuity_asset_ids + ([start_id] if start_id else []) + ([end_id] if end_id else [])
+            source_ids=list(dict.fromkeys(reference_ids + ([start_id] if start_id else []) + ([end_id] if end_id else [])))
             metadata=dict(result.metadata)
             metadata['generation']={
                 'attempt_id':attempt.attempt_id,
@@ -60,7 +132,7 @@ class AnimatorService:
                 'provider':result.provider,
                 'model':result.model,
                 'options':dict(shot.provider_options),
-                'reference_asset_ids':list(shot.continuity_asset_ids),
+                'reference_asset_ids':list(reference_ids),
                 'start_asset_id':start_id,
                 'end_asset_id':end_id,
                 'shot_features':shot_features,

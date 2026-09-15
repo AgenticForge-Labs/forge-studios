@@ -1,14 +1,26 @@
 import sys
+from pathlib import Path
 from types import SimpleNamespace
 
-from forge_studios.contracts import EpisodePackage, Scene, Shot, FramePlan
+import pytest
+
 from forge_studios.animator import AnimatorService
-from forge_studios.providers import MockProvider
-from forge_studios.providers.fal import FalProvider
-from forge_studios.providers.base import MediaRequest
-from forge_studios.package_ops import approve_asset, add_reference, register_asset, set_prompt
+from forge_studios.contracts import EpisodePackage, FramePlan, Scene, Shot
 from forge_studios.director import AutonomyPolicy, DirectorService, plan_work
-from forge_studios.storyboard import build_storyboard
+from forge_studios.package_ops import (
+    add_reference,
+    approve_asset,
+    register_asset,
+    set_prompt,
+)
+from forge_studios.providers import MockProvider
+from forge_studios.providers.base import MediaRequest
+from forge_studios.providers.fal import (
+    FalProvider,
+    image_model_profile,
+    provider_safe_image_prompt,
+)
+from forge_studios.storyboard import build_storyboard, generate_storyboard_candidates
 
 
 def package():
@@ -39,6 +51,18 @@ def test_director_stops_at_human_review_by_default(tmp_path):
     assert len(p.find_shot('sh1').storyboard_asset_ids)==1
 
 
+def test_batch_storyboard_generation_skips_existing_candidates(tmp_path):
+    p=EpisodePackage(production_id='ep1',episode_id='ep1',title='Test',scenes=[Scene(scene_id='sc1',shots=[
+        Shot(shot_id='sh1',duration_seconds=1,visual='first'),
+        Shot(shot_id='sh2',duration_seconds=1,visual='second'),
+    ])])
+    svc=AnimatorService(MockProvider(tmp_path/'assets'))
+    first=svc.generate(p,'sh1',role='storyboard')[0]
+    generated=generate_storyboard_candidates(p,svc)
+    assert [asset.shot_id for asset in generated]==['sh2']
+    assert p.find_shot('sh1').storyboard_asset_ids==[first.asset_id]
+
+
 def test_director_can_fully_auto_run_when_explicitly_allowed(tmp_path):
     p=package(); svc=AnimatorService(MockProvider(tmp_path/'assets'))
     policy=AutonomyPolicy(auto_approve_storyboards=True,auto_approve_frames=True,auto_approve_clips=True,allow_generated_video=True)
@@ -65,14 +89,57 @@ def test_fal_provider_uses_stored_key_and_uploads_local_reference(tmp_path,monke
     class FakeClient:
         def __init__(self,key=None): seen['key']=key
         def upload_file(self,path): seen.setdefault('uploads',[]).append(path); return 'https://uploaded/ref.png'
-        def subscribe(self,model,arguments,with_logs=False):
+        def subscribe(self,model,arguments,with_logs=False,**kwargs):
             seen['model']=model; seen['arguments']=arguments
+            seen['subscribe_kwargs']=kwargs
             return {'images':[{'url':'https://result/image.png'}]}
     monkeypatch.setitem(sys.modules,'fal_client',SimpleNamespace(SyncClient=FakeClient))
+    def fake_download(uri,target):
+        seen['download']=(uri,str(target)); target.write_bytes(b'downloaded')
+    monkeypatch.setattr('forge_studios.providers.fal.urlretrieve',fake_download)
     ref=tmp_path/'ref.png'; ref.write_bytes(b'x')
     local=SimpleNamespace(resolve=lambda name:'stored-test-value')
-    provider=FalProvider(image_model='image-model',local_config=local)
+    provider=FalProvider(image_model='fal-ai/flux-2-pro/edit',output_dir=tmp_path/'generated',local_config=local)
     out=provider.generate(MediaRequest(kind='image',shot_id='s',prompt='test',reference_assets=(str(ref),)))
     assert seen['key']=='stored-test-value'
     assert seen['arguments']['image_urls']==['https://uploaded/ref.png']
-    assert out[0].uri=='https://result/image.png'
+    assert seen['arguments']['image_size']=={'width':1920,'height':1080}
+    assert seen['arguments']['safety_tolerance']=='5'
+    assert seen['arguments']['enable_safety_checker'] is True
+    assert seen['subscribe_kwargs']['client_timeout']==300
+    assert seen['subscribe_kwargs']['interval']==5
+    assert Path(out[0].uri).read_bytes()==b'downloaded'
+    assert seen['download'][0]=='https://result/image.png'
+    assert out[0].metadata['remote_uri']=='https://result/image.png'
+
+
+def test_fal_image_model_profiles_map_reference_shapes_and_limits():
+    assert image_model_profile('fal-ai/flux-pro/kontext').reference_shape == 'single'
+    assert FalProvider._image_reference_payload(
+        'fal-ai/flux-pro/kontext', ['https://uploaded/ember.png']
+    )[0] == {'image_url': 'https://uploaded/ember.png'}
+    assert FalProvider._image_reference_payload(
+        'fal-ai/flux-pro/kontext/max/multi', ['https://uploaded/ember.png', 'https://uploaded/forge.png']
+    )[0] == {'image_urls': ['https://uploaded/ember.png', 'https://uploaded/forge.png']}
+
+
+def test_fal_provider_safety_pass_removes_risky_resting_and_failure_vocabulary():
+    prompt = (
+        "Ember awake but still lying on the altar. Do not let video generation infer malformed anatomy or a bipedal shape."
+    )
+    safe = provider_safe_image_prompt(prompt)
+    assert "lying" not in safe
+    assert "malformed" not in safe
+    assert "bipedal" not in safe
+    assert "settled on the altar" in safe
+    assert "four-legged silhouette" in safe
+    assert FalProvider._image_reference_payload(
+        'fal-ai/flux-2-pro/edit', ['https://uploaded/ember.png', 'https://uploaded/forge.png']
+    )[0] == {'image_urls': ['https://uploaded/ember.png', 'https://uploaded/forge.png']}
+
+
+def test_fal_image_model_profiles_reject_too_many_single_references():
+    with pytest.raises(ValueError, match='at most 1'):
+        FalProvider._image_reference_payload(
+            'fal-ai/flux-pro/kontext', ['https://uploaded/ember.png', 'https://uploaded/forge.png']
+        )

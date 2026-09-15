@@ -1,25 +1,27 @@
 from __future__ import annotations
-import argparse,getpass,json,os
+import argparse,getpass,json,os,webbrowser
 from pathlib import Path
-from .animator import AnimatorService
+from .animator import AnimatorService, assert_generation_preflight
+from .asset_resolution import bind_missing_references,discover_asset_sources
 from .continuity import extract_boundary_frames
 from .director import AutonomyPolicy,DirectorService,plan_work
 from .filmmaker import render,write_edit_plan
+from .frame_plan import validate_frame_plans
 from .io import load_package,save_json
 from .mlt_backend import render_timeline
-from .package_ops import add_reference,approve_asset,register_asset,reject_asset,remove_reference,set_frame_plan,set_prompt
+from .package_ops import add_reference,approve_asset,bind_inherited_start_frame,register_asset,reject_asset,remove_reference,set_frame_plan,set_prompt
 from .providers import FalProvider,MockProvider
 from .local_config import LocalSecretStore
-from .storyboard import build_storyboard
+from .storyboard import build_storyboard,generate_storyboard_candidates
 from .telemetry import TelemetrySink
 from .puppeteer_bridge import dispatch
 from .timeline import save_timeline
 from .timeline_adapter import timeline_from_episode_package
 from .shorts import render_short,write_short_edit_plan
 
-def _provider(name,output_dir):
+def _provider(name,output_dir,*,progress=None,client_timeout_seconds=None,poll_interval_seconds=None):
     if name=='mock': return MockProvider(output_dir)
-    if name=='fal': return FalProvider()
+    if name=='fal': return FalProvider(output_dir=output_dir,progress=progress,client_timeout_seconds=client_timeout_seconds,poll_interval_seconds=poll_interval_seconds)
     raise ValueError(name)
 
 def _scores(values):
@@ -37,10 +39,44 @@ def _keys(args):
         for name in s.list_names(): print(name)
 
 def _package(args):
-    p=load_package(args.path); print(f'valid {p.package_version}: {p.episode_id}; {sum(len(s.shots) for s in p.scenes)} shots')
-def _storyboard(args): print(build_storyboard(load_package(args.package),args.out))
+    p=load_package(args.path); issues=validate_frame_plans(p)
+    if issues:
+        print(json.dumps({'valid':False,'frame_plan_issues':[issue.as_dict() for issue in issues]},indent=2)); return 1
+    print(f'valid {p.package_version}: {p.episode_id}; {sum(len(s.shots) for s in p.scenes)} shots')
+
+def _storyboard(args):
+    p=load_package(args.package)
+    if args.generate: assert_generation_preflight(p)
+    sink=TelemetrySink(args.telemetry)
+    manifest=args.asset_manifest; asset_root=args.asset_root
+    if args.generate and not manifest and not asset_root:
+        manifest,asset_root=discover_asset_sources(args.package)
+    if args.generate and manifest and asset_root:
+        bound=bind_missing_references(p,manifest_path=manifest,asset_root=asset_root)
+        if bound:
+            save_json(args.package,p)
+            print(f'bound {len(bound)} missing reference asset(s)')
+    if args.generate:
+        animator=AnimatorService(_provider(args.provider,args.output_dir,progress=print,client_timeout_seconds=args.provider_timeout,poll_interval_seconds=args.provider_poll_interval),sink)
+        generated=generate_storyboard_candidates(p,animator,on_shot_complete=lambda package,shot,assets: save_json(args.package,package),progress=print)
+        print(f'generated {len(generated)} storyboard candidate(s)')
+    if args.auto_approve:
+        approved=0
+        for scene in p.scenes:
+            for shot in scene.shots:
+                if not shot.approved_storyboard_asset_id and shot.storyboard_asset_ids:
+                    approve_asset(p,shot.shot_id,'storyboard',shot.storyboard_asset_ids[-1],sink,note='Batch storyboard auto-approval')
+                    approved += 1
+        save_json(args.package,p)
+        print(f'approved {approved} storyboard candidate(s)')
+    elif args.generate:
+        save_json(args.package,p)
+    out=build_storyboard(p,args.out)
+    print(out)
+    if args.open and not webbrowser.open(out.resolve().as_uri()):
+        print(f'could not request a browser open; open {out} manually')
 def _generate(args):
-    p=load_package(args.package); service=AnimatorService(_provider(args.provider,args.output_dir),TelemetrySink(args.telemetry)); assets=service.generate(p,args.shot_id,role=args.role); save_json(args.package,p); print(json.dumps([a.model_dump(mode='json') for a in assets],indent=2))
+    p=load_package(args.package); assert_generation_preflight(p); service=AnimatorService(_provider(args.provider,args.output_dir,progress=print,client_timeout_seconds=args.provider_timeout,poll_interval_seconds=args.provider_poll_interval),TelemetrySink(args.telemetry)); assets=service.generate(p,args.shot_id,role=args.role); save_json(args.package,p); print(json.dumps([a.model_dump(mode='json') for a in assets],indent=2))
 def _approve(args):
     p=load_package(args.package); approve_asset(p,args.shot_id,args.kind,args.asset_id,TelemetrySink(args.telemetry),note=args.note,tags=args.tag,scores=_scores(args.score)); save_json(args.package,p); print(args.asset_id)
 def _reject(args):
@@ -51,7 +87,7 @@ def _physical(args):
     if not command: raise RuntimeError('Set --command or FORGE_PUPPETEER_CMD')
     asset=dispatch(p,args.shot_id,command=command,output=args.out,telemetry=TelemetrySink(args.telemetry)); save_json(args.package,p); print(asset.asset_id)
 def _auto(args):
-    p=load_package(args.package); sink=TelemetrySink(args.telemetry); animator=AnimatorService(_provider(args.provider,args.output_dir),sink); command=args.puppeteer_command or os.getenv('FORGE_PUPPETEER_CMD'); physical_executor=None
+    p=load_package(args.package); assert_generation_preflight(p); sink=TelemetrySink(args.telemetry); animator=AnimatorService(_provider(args.provider,args.output_dir),sink); command=args.puppeteer_command or os.getenv('FORGE_PUPPETEER_CMD'); physical_executor=None
     if command:
         def physical_executor(package,shot_id):
             out=Path(args.output_dir)/'physical'/f'{shot_id}.json'; return dispatch(package,shot_id,command=command,output=out,telemetry=sink).asset_id
@@ -73,6 +109,8 @@ def _set_prompt(args):
     p=load_package(args.package); set_prompt(p,args.shot_id,args.role,args.text); save_json(args.package,p); print(args.shot_id)
 def _set_frame(args):
     p=load_package(args.package); set_frame_plan(p,args.shot_id,args.mode,chain_from_shot_id=args.chain_from,start_asset_id=args.start_asset_id,end_asset_id=args.end_asset_id); save_json(args.package,p); print(args.shot_id)
+def _inherit_start(args):
+    p=load_package(args.package); asset_id=bind_inherited_start_frame(p,args.shot_id); save_json(args.package,p); print(asset_id)
 def _asset_add(args):
     p=load_package(args.package); asset=register_asset(p,asset_id=args.asset_id,uri=args.uri,kind=args.kind,status=args.status,authority=args.authority); save_json(args.package,p); print(asset.asset_id)
 def _asset_list(args):
@@ -86,8 +124,8 @@ def build_parser():
     p=argparse.ArgumentParser(prog='forge-studios'); sub=p.add_subparsers(dest='cmd',required=True)
     k=sub.add_parser('keys'); ks=k.add_subparsers(dest='action',required=True); st=ks.add_parser('set'); st.add_argument('name'); st.add_argument('value',nargs='?'); ks.add_parser('list'); k.set_defaults(func=_keys)
     v=sub.add_parser('validate'); v.add_argument('path'); v.set_defaults(func=_package)
-    sb=sub.add_parser('storyboard'); sb.add_argument('--package',required=True); sb.add_argument('--out',required=True); sb.set_defaults(func=_storyboard)
-    g=sub.add_parser('generate'); g.add_argument('--package',required=True); g.add_argument('--shot-id',required=True); g.add_argument('--role',choices=['storyboard','start_frame','end_frame','video'],default='storyboard'); g.add_argument('--provider',choices=['mock','fal'],default='mock'); g.add_argument('--output-dir',default='outputs'); g.add_argument('--telemetry',default='.agenticforge/telemetry.jsonl'); g.set_defaults(func=_generate)
+    sb=sub.add_parser('storyboard'); sb.add_argument('--package',required=True); sb.add_argument('--out',required=True); sb.add_argument('--generate',action='store_true',help='generate missing storyboard candidates before assembling HTML'); sb.add_argument('--auto-approve',action='store_true',help='approve the latest storyboard candidate for each shot'); sb.add_argument('--asset-manifest',help='asset manifest used to bind missing shot references'); sb.add_argument('--asset-root',help='root directory for manifest storage keys'); sb.add_argument('--provider',choices=['mock','fal'],default='mock'); sb.add_argument('--output-dir',default='outputs'); sb.add_argument('--telemetry',default='.agenticforge/telemetry.jsonl'); sb.add_argument('--provider-timeout',type=float,default=None,help='maximum seconds to wait for one provider request (default: 300 or FAL_CLIENT_TIMEOUT_SECONDS)'); sb.add_argument('--provider-poll-interval',type=float,default=None,help='seconds between provider status updates (default: 5 or FAL_POLL_INTERVAL_SECONDS)'); sb.add_argument('--open',action='store_true',help='open the generated storyboard HTML in the system browser'); sb.set_defaults(func=_storyboard)
+    g=sub.add_parser('generate'); g.add_argument('--package',required=True); g.add_argument('--shot-id',required=True); g.add_argument('--role',choices=['storyboard','start_frame','end_frame','video'],default='storyboard'); g.add_argument('--provider',choices=['mock','fal'],default='mock'); g.add_argument('--output-dir',default='outputs'); g.add_argument('--telemetry',default='.agenticforge/telemetry.jsonl'); g.add_argument('--provider-timeout',type=float,default=None); g.add_argument('--provider-poll-interval',type=float,default=None); g.set_defaults(func=_generate)
     a=sub.add_parser('approve'); a.add_argument('--package',required=True); a.add_argument('--shot-id',required=True); a.add_argument('--kind',choices=['storyboard','start_frame','end_frame','clip','take'],required=True); a.add_argument('--asset-id',required=True); a.add_argument('--telemetry',default='.agenticforge/telemetry.jsonl'); _review_args(a); a.set_defaults(func=_approve)
     rj=sub.add_parser('reject'); rj.add_argument('--package',required=True); rj.add_argument('--shot-id',required=True); rj.add_argument('--asset-id',required=True); rj.add_argument('--telemetry',default='.agenticforge/telemetry.jsonl'); _review_args(rj,rejection=True); rj.set_defaults(func=_reject)
     d=sub.add_parser('plan'); d.add_argument('--package',required=True); d.set_defaults(func=_plan)
@@ -103,6 +141,7 @@ def build_parser():
     ss=sub.add_parser('show-shot'); ss.add_argument('--package',required=True); ss.add_argument('--shot-id',required=True); ss.set_defaults(func=_show_shot)
     sp=sub.add_parser('set-prompt'); sp.add_argument('--package',required=True); sp.add_argument('--shot-id',required=True); sp.add_argument('--role',choices=['image','storyboard','start_frame','end_frame','video'],required=True); sp.add_argument('--text',required=True); sp.set_defaults(func=_set_prompt)
     sf=sub.add_parser('set-frame-plan'); sf.add_argument('--package',required=True); sf.add_argument('--shot-id',required=True); sf.add_argument('--mode',choices=['still','start_only','start_and_end','chained_start'],required=True); sf.add_argument('--chain-from'); sf.add_argument('--start-asset-id'); sf.add_argument('--end-asset-id'); sf.set_defaults(func=_set_frame)
+    inherit=sub.add_parser('inherit-start'); inherit.add_argument('--package',required=True); inherit.add_argument('--shot-id',required=True); inherit.set_defaults(func=_inherit_start)
     aa=sub.add_parser('asset-add'); aa.add_argument('--package',required=True); aa.add_argument('--asset-id',required=True); aa.add_argument('--uri',required=True); aa.add_argument('--kind',default='reference_image'); aa.add_argument('--status',default='canon'); aa.add_argument('--authority',default='locked'); aa.set_defaults(func=_asset_add)
     al=sub.add_parser('asset-list'); al.add_argument('--package',required=True); al.set_defaults(func=_asset_list)
     rf=sub.add_parser('reference'); rf.add_argument('action',choices=['add','remove']); rf.add_argument('--package',required=True); rf.add_argument('--shot-id',required=True); rf.add_argument('--asset-id',required=True); rf.set_defaults(func=_reference)

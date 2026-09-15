@@ -11,6 +11,7 @@ requires-python = ">=3.11"
 dependencies = [
   "pydantic>=2.7",
   "platformdirs>=4.2",
+  "pyyaml>=6.0",
 ]
 
 [project.optional-dependencies]
