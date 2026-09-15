@@ -79,7 +79,11 @@ class AnimatorService:
         prompt=(specific or storyboard_fallback_prompt(shot)) if role=='storyboard' else (
             specific or (shot.image_prompt if role!='video' else None) or self._default_prompt(shot,role)
         )
-        if role=='storyboard' and isinstance(shot.image_prompt,str) and shot.image_prompt.strip():
+        # Generated shot plans from Forge Worlds have an explicit storyboard prompt
+        # plus a richer image prompt. Keep the richer design anchor for those plans,
+        # but do not add it to the Studios fallback: the fallback intentionally uses
+        # the settled/end state rather than a potentially different starting pose.
+        if role=='storyboard' and specific and isinstance(shot.image_prompt,str) and shot.image_prompt.strip():
             image_anchor=shot.image_prompt.strip()
             if image_anchor not in prompt:
                 prompt += '\n\nVisual design anchor from the EpisodePackage: '+image_anchor
