@@ -1,9 +1,10 @@
 from __future__ import annotations
 import json, re, time
+from itertools import combinations
 from uuid import uuid4
 from ..contracts import AssetRecord, EpisodePackage, GenerationAttempt
 from ..frame_plan import FramePlanError, FramePlanIssue, predecessor_for, validate_frame_plans
-from ..providers.base import MediaProvider, MediaRequest
+from ..providers.base import MediaProvider, MediaRequest, ProviderGenerationError
 from ..telemetry import TelemetrySink
 
 ROLE_KIND={'storyboard':'storyboard_image','start_frame':'start_frame','end_frame':'end_frame','video':'generated_clip'}
@@ -65,6 +66,49 @@ def assert_generation_preflight(package: EpisodePackage) -> None:
         raise ValueError('EpisodePackage has hard production-preflight errors; fix and revalidate it before media generation.')
 
 
+def reference_isolation_plan(reference_asset_ids: list[str]) -> dict:
+    """Build a deterministic single-then-pairwise plan for diagnosing bad reference combinations.
+
+    The plan is diagnostic metadata only; Studios never spends additional provider
+    calls automatically. It gives the operator an exact next subset to try while
+    keeping the original reference ordering visible.
+    """
+    ids=list(dict.fromkeys(reference_asset_ids))
+    steps=[]
+    for asset_id in ids:
+        steps.append({'phase':'single_reference','reference_asset_ids':[asset_id]})
+    for left,right in combinations(ids,2):
+        steps.append({'phase':'pairwise_reference','reference_asset_ids':[left,right]})
+    return {
+        'strategy':'single_then_pairwise',
+        'original_reference_asset_ids':ids,
+        'steps':steps,
+        'next_isolation_step':steps[0] if steps else None,
+    }
+
+
+def failure_recovery_plan(failure_class: str|None, reference_asset_ids: list[str]) -> dict:
+    """Choose the next deterministic recovery action without silently retrying."""
+    if failure_class in {'timeout','transport'}:
+        return {
+            'action':'retry_same_request',
+            'reason':'transport/timeout failures should be retried unchanged before changing references',
+            'reference_asset_ids':list(reference_asset_ids),
+        }
+    isolation=reference_isolation_plan(reference_asset_ids)
+    if isolation['next_isolation_step']:
+        return {
+            'action':'isolate_references',
+            'reason':'test supplied references individually, then pairwise, to distinguish prompt/image/pair failures',
+            **isolation,
+        }
+    return {
+        'action':'inspect_prompt_or_provider_request',
+        'reason':'no reference images are available to isolate',
+        'reference_asset_ids':[],
+    }
+
+
 def _reference_purpose(package: EpisodePackage, shot, asset_id: str, *, start_id: str|None) -> str:
     if asset_id == shot.approved_storyboard_asset_id:
         return 'approved planning/composition guide for this shot; use layout, not as a replacement for canonical identity or site design'
@@ -82,13 +126,7 @@ def _reference_purpose(package: EpisodePackage, shot, asset_id: str, *, start_id
 
 
 def structured_image_prompt(package: EpisodePackage, shot, role: str, instruction: str, reference_ids: list[str], *, start_id: str|None=None) -> str:
-    """Serialize image-only production context as structured JSON.
-
-    FLUX.2 and similar multi-reference editors can reason directly over JSON-shaped
-    prompts and explicit image indices.  Keeping this construction in Studios makes
-    it deterministic: Worlds still owns story/creative intent; Studios only packages
-    the already-authored shot data for the media model.
-    """
+    """Serialize image-only production context as structured JSON."""
     references=[]
     for index, asset_id in enumerate(reference_ids,1):
         references.append({
@@ -139,10 +177,6 @@ class AnimatorService:
         prompt=(specific or storyboard_fallback_prompt(shot)) if role=='storyboard' else (
             specific or (shot.image_prompt if role!='video' else None) or self._default_prompt(shot,role)
         )
-        # Generated shot plans from Forge Worlds have an explicit storyboard prompt
-        # plus a richer image prompt. Keep the richer design anchor for those plans,
-        # but do not add it to the Studios fallback: the fallback intentionally uses
-        # the settled/end state rather than a potentially different starting pose.
         if role=='storyboard' and specific and isinstance(shot.image_prompt,str) and shot.image_prompt.strip():
             image_anchor=shot.image_prompt.strip()
             if image_anchor not in prompt:
@@ -209,14 +243,34 @@ class AnimatorService:
         try:
             results=self.provider.generate(request)
         except Exception as exc:
-            if 'content_policy_violation' in str(exc):
+            diagnostics=exc.as_dict() if isinstance(exc,ProviderGenerationError) else {
+                'provider':self.provider.name,
+                'model':getattr(self.provider,'video_model' if role=='video' else 'image_model',None),
+                'request_id':None,
+                'failure_class':'provider_error',
+            }
+            failure_class=diagnostics.get('failure_class')
+            recovery=failure_recovery_plan(failure_class,reference_ids)
+            diagnostics.update({
+                'shot_id':shot_id,
+                'role':role,
+                'prompt':prompt,
+                'reference_asset_ids':list(reference_ids),
+                'provider_options':dict(shot.provider_options),
+                'recovery':recovery,
+                'next_isolation_step':recovery.get('next_isolation_step'),
+            })
+            attempt.model=diagnostics.get('model')
+            attempt.metadata['failure_diagnostics']=diagnostics
+            if failure_class=='content_policy' or 'content_policy_violation' in str(exc):
                 self.telemetry.emit(
                     'generation_prompt.rejected', production_id=package.production_id, episode_id=package.episode_id,
                     shot_id=shot_id, role=role, provider=self.provider.name,
-                    code='PROVIDER_CONTENT_POLICY_REJECTION',
-                    guidance='Revise provider-facing prompts in Forge Worlds; Forge Studios does not use an LLM to rewrite prompts.',
+                    code='PROVIDER_CONTENT_POLICY_REJECTION', request_id=diagnostics.get('request_id'),
+                    reference_asset_ids=list(reference_ids), next_isolation_step=recovery.get('next_isolation_step'),
+                    guidance='Do not rewrite the story automatically. Diagnose prompt versus reference-image false positives using the recorded isolation plan.',
                 )
-                exc.add_note('Provider content-policy rejection: revise provider-facing prompts in Forge Worlds; Forge Studios does not use an LLM to rewrite prompts.')
+                exc.add_note('Provider content-policy rejection: use failure_diagnostics.recovery to isolate prompt/reference causes; Forge Studios does not use an LLM to rewrite prompts.')
             attempt.outcome='failed'; attempt.error=str(exc); attempt.latency_ms=(time.perf_counter()-started)*1000
             self.telemetry.emit('generation_attempt.failed',**attempt.model_dump(mode='json')); raise
         assets=[]
