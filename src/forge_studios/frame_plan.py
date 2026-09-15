@@ -79,7 +79,7 @@ def validate_frame_plans(package: EpisodePackage, *, require_approved_end_frames
         if index == 0:
             continue
         predecessor = shots[index - 1]
-        if predecessor.render_strategy != 'generated_video':
+        if predecessor.render_strategy != 'generated_video' or predecessor.frame_plan.mode != 'start_and_end':
             continue
         if _editorial_boundary(shot):
             continue
