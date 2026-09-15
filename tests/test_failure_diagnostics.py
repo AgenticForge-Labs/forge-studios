@@ -4,7 +4,7 @@ import pytest
 
 from forge_studios.animator.service import AnimatorService, failure_recovery_plan, reference_isolation_plan
 from forge_studios.contracts import AssetRecord, EpisodePackage, Scene, Shot
-from forge_studios.providers.base import ProviderGenerationError
+from forge_studios.providers.base import MediaResult, ProviderGenerationError
 from forge_studios.providers.fal import _classify_fal_failure
 from forge_studios.telemetry import TelemetrySink
 
@@ -29,6 +29,13 @@ class RejectingProvider:
                 },
             },
         )
+
+
+class SucceedingProvider:
+    name = 'mock-success'
+
+    def generate(self, request):
+        return [MediaResult(uri='/tmp/success.png', provider=self.name, model='test-image')]
 
 
 def diagnostic_package():
@@ -96,6 +103,40 @@ def test_content_policy_failure_records_complete_reproducible_diagnostics(tmp_pa
     assert rejected['request_id'] == 'req_test_123'
     assert rejected['reference_asset_ids'] == ['ember_ref', 'forge_ref']
     assert rejected['next_isolation_step']['reference_asset_ids'] == ['ember_ref']
+
+    persisted = package.trace['generation_attempts']
+    assert len(persisted) == 1
+    assert persisted[0]['attempt_id'] == failed['attempt_id']
+    assert persisted[0]['outcome'] == 'failed'
+    assert persisted[0]['error'] == 'content_policy_violation'
+    assert persisted[0]['metadata']['failure_diagnostics']['request_id'] == 'req_test_123'
+    assert package.trace['last_generation_attempt_id'] == persisted[0]['attempt_id']
+    assert package.trace['last_generation_failure']['attempt_id'] == persisted[0]['attempt_id']
+
+
+def test_successful_attempt_replaces_started_snapshot_in_package_trace():
+    package = diagnostic_package()
+    assets = AnimatorService(SucceedingProvider()).generate(package, 'jump', role='storyboard')
+    attempts = package.trace['generation_attempts']
+    assert len(attempts) == 1
+    assert attempts[0]['outcome'] == 'succeeded'
+    assert attempts[0]['asset_ids'] == [assets[0].asset_id]
+    assert attempts[0]['model'] == 'test-image'
+    assert package.trace['last_generation_attempt_id'] == attempts[0]['attempt_id']
+    assert 'last_generation_failure' not in package.trace
+
+
+def test_attempt_history_appends_across_retries_instead_of_overwriting_prior_failures():
+    package = diagnostic_package()
+    service = AnimatorService(RejectingProvider())
+    for _ in range(2):
+        with pytest.raises(ProviderGenerationError):
+            service.generate(package, 'jump', role='storyboard')
+    attempts = package.trace['generation_attempts']
+    assert len(attempts) == 2
+    assert attempts[0]['attempt_id'] != attempts[1]['attempt_id']
+    assert [attempt['outcome'] for attempt in attempts] == ['failed', 'failed']
+    assert package.trace['last_generation_failure']['attempt_id'] == attempts[-1]['attempt_id']
 
 
 def test_fal_failure_classification_separates_policy_timeout_and_transport():

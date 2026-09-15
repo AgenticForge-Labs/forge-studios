@@ -31,6 +31,17 @@ def _scores(values):
         name,value=item.split('=',1); result[name]=float(value)
     return result
 
+def _run_with_failure_checkpoint(package_path,p,operation):
+    """Persist in-memory attempt diagnostics before re-raising a failed command."""
+    try:
+        return operation()
+    except Exception as exc:
+        try:
+            save_json(package_path,p)
+        except Exception as checkpoint_exc:
+            exc.add_note(f'Forge Studios could not checkpoint the failed package state: {checkpoint_exc}')
+        raise
+
 def _keys(args):
     s=LocalSecretStore()
     if args.action=='set':
@@ -58,7 +69,14 @@ def _storyboard(args):
             print(f'bound {len(bound)} missing reference asset(s)')
     if args.generate:
         animator=AnimatorService(_provider(args.provider,args.output_dir,progress=print,client_timeout_seconds=args.provider_timeout,poll_interval_seconds=args.provider_poll_interval),sink)
-        generated=generate_storyboard_candidates(p,animator,on_shot_complete=lambda package,shot,assets: save_json(args.package,package),progress=print)
+        generated=_run_with_failure_checkpoint(
+            args.package,p,
+            lambda: generate_storyboard_candidates(
+                p,animator,
+                on_shot_complete=lambda package,shot,assets: save_json(args.package,package),
+                progress=print,
+            ),
+        )
         print(f'generated {len(generated)} storyboard candidate(s)')
     if args.auto_approve:
         approved=0
@@ -76,7 +94,10 @@ def _storyboard(args):
     if args.open and not webbrowser.open(out.resolve().as_uri()):
         print(f'could not request a browser open; open {out} manually')
 def _generate(args):
-    p=load_package(args.package); assert_generation_preflight(p); service=AnimatorService(_provider(args.provider,args.output_dir,progress=print,client_timeout_seconds=args.provider_timeout,poll_interval_seconds=args.provider_poll_interval),TelemetrySink(args.telemetry)); assets=service.generate(p,args.shot_id,role=args.role); save_json(args.package,p); print(json.dumps([a.model_dump(mode='json') for a in assets],indent=2))
+    p=load_package(args.package); assert_generation_preflight(p)
+    service=AnimatorService(_provider(args.provider,args.output_dir,progress=print,client_timeout_seconds=args.provider_timeout,poll_interval_seconds=args.provider_poll_interval),TelemetrySink(args.telemetry))
+    assets=_run_with_failure_checkpoint(args.package,p,lambda: service.generate(p,args.shot_id,role=args.role))
+    save_json(args.package,p); print(json.dumps([a.model_dump(mode='json') for a in assets],indent=2))
 def _approve(args):
     p=load_package(args.package); approve_asset(p,args.shot_id,args.kind,args.asset_id,TelemetrySink(args.telemetry),note=args.note,tags=args.tag,scores=_scores(args.score)); save_json(args.package,p); print(args.asset_id)
 def _reject(args):
@@ -93,7 +114,7 @@ def _auto(args):
             out=Path(args.output_dir)/'physical'/f'{shot_id}.json'; return dispatch(package,shot_id,command=command,output=out,telemetry=sink).asset_id
     director=DirectorService(animator,telemetry=sink,physical_executor=physical_executor)
     policy=AutonomyPolicy(auto_approve_storyboards=args.auto_approve_storyboards,auto_approve_frames=args.auto_approve_frames,auto_approve_clips=args.auto_approve_clips,auto_approve_takes=args.auto_approve_takes,allow_generated_video=args.allow_video,allow_physical_execution=args.allow_physical,max_actions=args.max_actions)
-    result=director.run_until_blocked(p,policy); save_json(args.package,p); print(json.dumps({'status':result.status,'actions_completed':result.actions_completed,'next_work':result.next_work.__dict__ if result.next_work else None},indent=2))
+    result=_run_with_failure_checkpoint(args.package,p,lambda: director.run_until_blocked(p,policy)); save_json(args.package,p); print(json.dumps({'status':result.status,'actions_completed':result.actions_completed,'next_work':result.next_work.__dict__ if result.next_work else None},indent=2))
 def _edit_plan(args): print(write_edit_plan(load_package(args.package),args.out))
 def _render(args): print(render(load_package(args.package),args.out,ffmpeg=args.ffmpeg,telemetry=TelemetrySink(args.telemetry)))
 def _short_plan(args): print(write_short_edit_plan(load_package(args.package),args.short_id,args.out))
