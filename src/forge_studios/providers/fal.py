@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import os
 import re
 import time
@@ -23,13 +24,15 @@ class FalImageModelProfile:
     reference_shape: str = "list"
     max_references: int | None = None
     numbered_prompt_references: bool = False
+    min_dimension: int | None = None
 
 
 _DEFAULT_IMAGE_PROFILE = FalImageModelProfile()
 _IMAGE_MODEL_PROFILES = {
     "fal-ai/flux-pro/kontext": FalImageModelProfile("image_url", "single", 1),
     "fal-ai/flux-pro/kontext/max/multi": FalImageModelProfile("image_urls", "list"),
-    "fal-ai/flux-2/flash/edit": FalImageModelProfile("image_urls", "list"),
+    "fal-ai/flux-2/flash": FalImageModelProfile("image_urls", "list", min_dimension=512),
+    "fal-ai/flux-2/flash/edit": FalImageModelProfile("image_urls", "list", 4, min_dimension=512),
     "fal-ai/flux-2-pro/edit": FalImageModelProfile("image_urls", "list"),
     "fal-ai/kling-image/o3/image-to-image": FalImageModelProfile("image_urls", "list", 10, True),
     "openai/gpt-image-2/edit": FalImageModelProfile("image_urls", "list", 16),
@@ -40,6 +43,27 @@ _FAST_VIDEO_DURATIONS = {6, 8, 10, 12, 14, 16, 18, 20}
 def image_model_profile(model: str) -> FalImageModelProfile:
     """Return known Fal reference rules, defaulting to the common image_urls list."""
     return _IMAGE_MODEL_PROFILES.get(model, _DEFAULT_IMAGE_PROFILE)
+
+
+def resolve_supported_image_size(model: str, width: int, height: int) -> tuple[int, int]:
+    """Resolve a mode target to the nearest documented practical 16:9 size.
+
+    FLUX.2 Flash/Flash Edit document a 512px minimum for each custom dimension,
+    so the semantic cheap target 768x432 cannot be sent literally. We scale to
+    the smallest exact integer 16:9 dimensions satisfying that endpoint limit.
+    Explicit per-request ``image_size`` still bypasses this mode-default resolver.
+    """
+    profile=image_model_profile(model)
+    minimum=profile.min_dimension
+    if minimum is None or (width >= minimum and height >= minimum):
+        return width,height
+    unit=max(
+        math.ceil(width/16),
+        math.ceil(height/9),
+        math.ceil(minimum/16),
+        math.ceil(minimum/9),
+    )
+    return 16*unit,9*unit
 
 
 def provider_safe_image_prompt(prompt: str) -> str:
@@ -189,7 +213,8 @@ class FalProvider:
     def _apply_profile_defaults(self, request: MediaRequest, model: str, payload: dict[str, Any]) -> None:
         if request.kind == 'image':
             if 'image_size' not in payload and self.profile.image.width and self.profile.image.height:
-                payload['image_size']={'width':self.profile.image.width,'height':self.profile.image.height}
+                width,height=resolve_supported_image_size(model,self.profile.image.width,self.profile.image.height)
+                payload['image_size']={'width':width,'height':height}
             if model.startswith('fal-ai/flux-2'):
                 payload.setdefault('safety_tolerance', os.getenv('FAL_IMAGE_SAFETY_TOLERANCE','5'))
                 payload.setdefault('enable_safety_checker', True)
@@ -240,6 +265,7 @@ class FalProvider:
                 'reference_field':os.getenv('FAL_IMAGE_REFERENCE_FIELD') or profile.reference_field,
                 'reference_shape':profile.reference_shape,
                 'max_references':profile.max_references,
+                'image_target_size':{'width':self.profile.image.width,'height':self.profile.image.height} if self.profile.image.width and self.profile.image.height else None,
                 'image_size':payload.get('image_size'),
                 'safety_tolerance':payload.get('safety_tolerance','provider-default'),
                 'enable_safety_checker':payload.get('enable_safety_checker','provider-default'),
@@ -327,7 +353,7 @@ class FalProvider:
         if request.kind=='image':
             self._progress(
                 f'[fal] {request.shot_id} {request.role}: mode={self.generation_mode} model={model} '
-                f'image_size={payload.get("image_size", "provider-default")} '
+                f'image_target={settings.get("image_target_size")} image_size={payload.get("image_size", "provider-default")} '
                 f'safety_tolerance={payload.get("safety_tolerance", "provider-default")}, '
                 f'enable_safety_checker={payload.get("enable_safety_checker", "provider-default")}'
             )
