@@ -23,7 +23,7 @@ dev = ["pytest>=8", "ruff>=0.6"]
 full = ["fal-client>=0.7", "opentimelineio>=0.17", "opencv-python-headless>=4.10", "numpy>=1.26", "keyring>=25"]
 
 [project.scripts]
-forge-studios = "forge_studios.cli:main"
+forge-studios = "forge_studios.entrypoint:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

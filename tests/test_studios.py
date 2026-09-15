@@ -135,7 +135,7 @@ def test_fal_provider_uses_stored_key_and_uploads_local_reference(tmp_path,monke
     monkeypatch.setattr('forge_studios.providers.fal.urlretrieve',fake_download)
     ref=tmp_path/'ref.png'; ref.write_bytes(b'x')
     local=SimpleNamespace(resolve=lambda name:'stored-test-value')
-    provider=FalProvider(image_model='fal-ai/flux-2-pro/edit',output_dir=tmp_path/'generated',local_config=local)
+    provider=FalProvider(image_edit_model='fal-ai/flux-2-pro/edit',output_dir=tmp_path/'generated',local_config=local)
     out=provider.generate(MediaRequest(kind='image',shot_id='s',prompt='test',reference_assets=(str(ref),)))
     assert seen['key']=='stored-test-value'
     assert seen['arguments']['image_urls']==['https://uploaded/ref.png']

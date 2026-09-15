@@ -11,6 +11,7 @@ class MediaRequest:
     reference_assets: tuple[str,...]=()
     start_frame_asset: str|None=None
     end_frame_asset: str|None=None
+    duration_seconds: float|None=None
     options: dict[str,Any]=field(default_factory=dict)
 
 @dataclass
