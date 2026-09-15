@@ -67,20 +67,13 @@ def validate_frame_plans(package: EpisodePackage, *, require_approved_end_frames
     selected = [shot for shot in shots if shot_id is None or shot.shot_id == shot_id]
     positions = {item.shot_id: index for index, item in enumerate(shots)}
 
-    # Generated-video units are defined by their boundary frames.  If Worlds split
-    # a continuous performance into adjacent units without declaring a real edit,
-    # the later unit must begin from the exact approved endpoint of the first.  This
-    # applies across scene boundaries too: scene is a dramatic grouping, not an
-    # instruction to throw away visual continuity.
+    # Forge Worlds' current generated-video contract uses start_and_end. When two
+    # such units are adjacent and the later unit does not declare a real editorial
+    # boundary, it must reuse the predecessor's exact endpoint. Keep older
+    # start_only/chained_start packages valid for compatibility; this rule tightens
+    # the current production path without rewriting legacy contracts.
     for shot in selected:
-        if shot.render_strategy != 'generated_video':
-            continue
-        if shot.frame_plan.mode != 'start_and_end':
-            issues.append(FramePlanIssue(
-                'GENERATED_VIDEO_REQUIRES_START_AND_END',
-                f"Shot {shot.shot_id!r} is generated video and must use frame_plan.mode='start_and_end'.",
-                shot.shot_id,
-            ))
+        if shot.render_strategy != 'generated_video' or shot.frame_plan.mode != 'start_and_end':
             continue
         index = positions[shot.shot_id]
         if index == 0:
