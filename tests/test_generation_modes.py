@@ -217,8 +217,8 @@ def test_animator_passes_shot_duration_to_video_provider_and_persists_generation
 def test_studio_cli_consumes_mode_and_propagates_semantic_mode_to_worlds(monkeypatch):
     captured = {}
     monkeypatch.setattr(entrypoint.cli, "main", lambda argv: captured.setdefault("argv", argv) or 0)
-    monkeypatch.delenv("FORGE_STUDIOS_MODE", raising=False)
-    monkeypatch.delenv("FORGE_WORLDS_MODE", raising=False)
+    monkeypatch.setenv("FORGE_STUDIOS_MODE", "normal")
+    monkeypatch.setenv("FORGE_WORLDS_MODE", "normal")
     result = entrypoint.main([
         "generate", "--package", "episode.json", "--shot-id", "s", "--provider", "mock", "--mode", "cheap"
     ])
