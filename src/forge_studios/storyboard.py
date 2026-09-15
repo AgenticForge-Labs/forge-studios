@@ -186,7 +186,7 @@ def _frame_panel(package: EpisodePackage, shot, role: str, prompt: str | None) -
     label = 'START FRAME' if role == 'start_frame' else 'END FRAME'
     inherited = ''
     if role == 'start_frame' and shot.frame_plan.chain_from_shot_id:
-        inherited = f'<div class="handoff">↳ exact handoff from {html.escape(shot.frame_plan.chain_from_shot_id)} end frame</div>'
+        inherited = f'<div class="handoff">↳ inherited from {html.escape(shot.frame_plan.chain_from_shot_id)} end frame (exact handoff)</div>'
     asset_label = f'<code>{html.escape(asset_id)}</code>' if asset_id else '<span class="muted">pending</span>'
     return f'''<section class="frame-panel">
 <div class="frame-heading"><b>{label}</b>{inherited}</div>
@@ -220,12 +220,7 @@ def build_storyboard(package: EpisodePackage, path: str | Path) -> Path:
                 visual = '<div class="missing">Unsupported final-shot strategy for boundary storyboard</div>'
                 motion = ''
             else:
-                visual = (
-                    '<div class="frame-grid">'
-                    + _frame_panel(package, shot, 'start_frame', shot.start_frame_prompt)
-                    + _frame_panel(package, shot, 'end_frame', shot.end_frame_prompt)
-                    + '</div>'
-                )
+                visual = '<div class="frame-grid">' + _frame_panel(package, shot, 'start_frame', shot.start_frame_prompt) + _frame_panel(package, shot, 'end_frame', shot.end_frame_prompt) + '</div>'
                 motion = f'<h4>VIDEO MOTION / PERFORMANCE PROMPT</h4><pre class="video-prompt">{html.escape(shot.video_prompt or "(no video prompt)")}</pre>'
             cards.append(f'''<article>
 <h3>{html.escape(shot.shot_id)} · {shot.duration_seconds:g}s</h3>
