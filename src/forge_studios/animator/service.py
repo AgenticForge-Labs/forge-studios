@@ -64,6 +64,63 @@ def assert_generation_preflight(package: EpisodePackage) -> None:
     if package.status=='blocked' or (isinstance(report,dict) and report.get('is_valid') is False):
         raise ValueError('EpisodePackage has hard production-preflight errors; fix and revalidate it before media generation.')
 
+
+def _reference_purpose(package: EpisodePackage, shot, asset_id: str, *, start_id: str|None) -> str:
+    if asset_id == shot.approved_storyboard_asset_id:
+        return 'approved planning/composition guide for this shot; use layout, not as a replacement for canonical identity or site design'
+    if start_id and asset_id == start_id:
+        return 'exact approved start frame; preserve its identity, geometry, lighting, props, scale, and camera axis while changing only the intended end-state pose/composition'
+    try:
+        asset=package.find_asset(asset_id)
+    except KeyError:
+        return 'production reference'
+    role=getattr(asset,'role',None) or asset.metadata.get('role') if isinstance(asset.metadata,dict) else None
+    if asset.kind=='reference_image':
+        suffix=f' ({role})' if role else ''
+        return f'canonical or approved identity/site reference{suffix}; preserve design facts while following this shot-specific pose and camera'
+    return f'production reference ({asset.kind})'
+
+
+def structured_image_prompt(package: EpisodePackage, shot, role: str, instruction: str, reference_ids: list[str], *, start_id: str|None=None) -> str:
+    """Serialize image-only production context as structured JSON.
+
+    FLUX.2 and similar multi-reference editors can reason directly over JSON-shaped
+    prompts and explicit image indices.  Keeping this construction in Studios makes
+    it deterministic: Worlds still owns story/creative intent; Studios only packages
+    the already-authored shot data for the media model.
+    """
+    references=[]
+    for index, asset_id in enumerate(reference_ids,1):
+        references.append({
+            'image': f'Image {index}',
+            'asset_id': asset_id,
+            'use': _reference_purpose(package,shot,asset_id,start_id=start_id),
+        })
+    payload={
+        'task':'generate one production image',
+        'frame_role':role,
+        'instruction':instruction,
+        'shot_context':{
+            'purpose':shot.purpose,
+            'visual_action':shot.visual,
+        },
+        'camera':shot.camera,
+        'composition_constraints':{
+            'must_show':_constraint_values(shot,'must_show'),
+            'must_not_show':_constraint_values(shot,'must_not_show'),
+        },
+        'reference_images':references,
+        'continuity':{
+            'preserve_character_identity':True,
+            'preserve_established_site_geometry':True,
+            'preserve_scale_materials_lighting_and_fixed_props':True,
+            'reference_images_are_design_authority_not_default_pose':True,
+        },
+        'output':'one clean 16:9 frame; no collage, labels, captions, borders, or motion blur',
+    }
+    return json.dumps(payload,ensure_ascii=False,indent=2)
+
+
 class AnimatorService:
     def __init__(self, provider: MediaProvider, telemetry: TelemetrySink|None=None):
         self.provider=provider; self.telemetry=telemetry or TelemetrySink()
@@ -75,6 +132,9 @@ class AnimatorService:
             raise ValueError('physical-only shot belongs to Forge Puppeteer')
         if role=='video' and shot.render_strategy not in {'generated_video','hybrid'}:
             raise ValueError('shot is not configured for generated video')
+        if role!='storyboard':
+            issues=validate_frame_plans(package,shot_id=shot_id)
+            if issues: raise FramePlanError(issues[0])
         specific=getattr(shot,ROLE_PROMPT[role],None)
         prompt=(specific or storyboard_fallback_prompt(shot)) if role=='storyboard' else (
             specific or (shot.image_prompt if role!='video' else None) or self._default_prompt(shot,role)
@@ -125,6 +185,8 @@ class AnimatorService:
                        'Preserve its character design, architecture, light, props, and camera axis; change only the '
                        'intended pose and ending composition.')
         prompt += production_prompt_suffix(shot,role)
+        if role!='video':
+            prompt=structured_image_prompt(package,shot,role,prompt,reference_ids,start_id=start_id)
         refs=[self._asset_uri(package,a) for a in reference_ids]
         request=MediaRequest(kind='video' if role=='video' else 'image',shot_id=shot_id,role=role,prompt=prompt,reference_assets=tuple(refs),start_frame_asset=self._asset_uri(package,start_id) if start_id else None,end_frame_asset=self._asset_uri(package,end_id) if end_id else None,options=shot.provider_options)
         shot_features={
