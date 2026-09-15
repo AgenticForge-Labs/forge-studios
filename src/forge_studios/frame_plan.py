@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import asdict, dataclass
 
 from .contracts import EpisodePackage, Shot
@@ -61,11 +62,90 @@ def _editorial_boundary(shot: Shot) -> str:
     return str(value).strip() if value is not None else ''
 
 
+# Boundary stills are endpoint states, not illustrations of the motion that the
+# image-to-video model is expected to synthesize between them.  These patterns are
+# intentionally narrow: "crouched and ready to jump" and "standing after landing"
+# are valid settled endpoints, while "mid-jump" and "while falling" are not.
+_TRANSIENT_BOUNDARY_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ('mid-motion', re.compile(
+        r'\bmid[- ]?(?:jump|leap|fall|descent|landing|turn|stride|step|run|walk|flight)\b',
+        re.IGNORECASE,
+    )),
+    ('while-moving', re.compile(
+        r'\bwhile\s+(?:jumping|leaping|falling|landing|descending|turning|walking|running|flying)\b',
+        re.IGNORECASE,
+    )),
+    ('during-motion', re.compile(
+        r'\bduring\s+(?:the\s+)?(?:jump|leap|fall|descent|landing|turn|walk|run|flight)\b',
+        re.IGNORECASE,
+    )),
+    ('in-the-act-of-motion', re.compile(
+        r'\bin\s+the\s+act\s+of\s+(?:jumping|leaping|falling|landing|descending|turning|walking|running|flying)\b',
+        re.IGNORECASE,
+    )),
+    ('halfway-through-motion', re.compile(
+        r'\bhalfway\s+(?:through|down|up|across)\b',
+        re.IGNORECASE,
+    )),
+    ('motion-blur', re.compile(r'\bmotion[- ]blur(?:red)?\b', re.IGNORECASE)),
+    ('active-jump-or-fall', re.compile(
+        r'\b(?:jumps|leaps|falls)\s+(?:from|off|down|toward|towards|to|across|over)\b',
+        re.IGNORECASE,
+    )),
+)
+
+
+def transient_boundary_markers(prompt: str | None) -> list[str]:
+    """Return narrow markers that make a boundary prompt an in-motion action panel."""
+    if not isinstance(prompt, str) or not prompt.strip():
+        return []
+    return [name for name, pattern in _TRANSIENT_BOUNDARY_PATTERNS if pattern.search(prompt)]
+
+
+def _normalized_boundary_prompt(prompt: str | None) -> str:
+    if not isinstance(prompt, str):
+        return ''
+    return re.sub(r'[^a-z0-9]+', ' ', prompt.casefold()).strip()
+
+
+def _boundary_prompt_issues(shot: Shot) -> list[FramePlanIssue]:
+    """Validate that generated-video boundary prompts describe distinct settled states."""
+    if shot.render_strategy != 'generated_video' or shot.frame_plan.mode != 'start_and_end':
+        return []
+    issues: list[FramePlanIssue] = []
+    for field_name in ('start_frame_prompt', 'end_frame_prompt'):
+        prompt = getattr(shot, field_name, None)
+        markers = transient_boundary_markers(prompt)
+        if markers:
+            issues.append(FramePlanIssue(
+                'BOUNDARY_FRAME_TRANSIENT_ACTION',
+                f"Shot {shot.shot_id!r} {field_name} describes transient motion ({', '.join(markers)}). "
+                'Boundary images must be settled endpoint states; put the jump, fall, turn, walk, or other '
+                'intermediate motion in video_prompt instead.',
+                shot.shot_id,
+            ))
+    start = _normalized_boundary_prompt(getattr(shot, 'start_frame_prompt', None))
+    end = _normalized_boundary_prompt(getattr(shot, 'end_frame_prompt', None))
+    if start and end and start == end:
+        issues.append(FramePlanIssue(
+            'BOUNDARY_FRAME_PROMPTS_DUPLICATE',
+            f"Shot {shot.shot_id!r} uses the same settled composition for its start and end frames. "
+            'Describe the distinct state before the action and the distinct state after it; keep the transition in video_prompt.',
+            shot.shot_id,
+        ))
+    return issues
+
+
 def validate_frame_plans(package: EpisodePackage, *, require_approved_end_frames: bool = False, shot_id: str | None = None) -> list[FramePlanIssue]:
     issues: list[FramePlanIssue] = []
     shots = ordered_shots(package)
     selected = [shot for shot in shots if shot_id is None or shot.shot_id == shot_id]
     positions = {item.shot_id: index for index, item in enumerate(shots)}
+
+    # Fail before any boundary-frame provider spend when a generated-video unit has
+    # been planned like a comic action panel rather than as start/end states.
+    for shot in selected:
+        issues.extend(_boundary_prompt_issues(shot))
 
     # Forge Worlds' current generated-video contract uses start_and_end. When two
     # such units are adjacent and the later unit does not declare a real editorial
