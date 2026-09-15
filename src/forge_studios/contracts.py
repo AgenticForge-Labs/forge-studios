@@ -60,8 +60,12 @@ class Scene(BaseModel):
 class AssetRecord(BaseModel):
     model_config = ConfigDict(extra='allow')
     asset_id: str = Field(default_factory=lambda: f'asset_{uuid4().hex}')
+    world_id: str | None = None
+    entity_id: str | None = None
+    related_entity_ids: list[str] = Field(default_factory=list)
     kind: str
     uri: str
+    storage_key: str | None = None
     status: str = 'candidate'
     authority: str = 'generated'
     episode_id: str | None = None
@@ -71,6 +75,9 @@ class AssetRecord(BaseModel):
     source_asset_ids: list[str] = Field(default_factory=list)
     provider: str | None = None
     model: str | None = None
+    logical_key: str | None = None
+    role: str | None = None
+    tags: list[str] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 class EpisodePackage(BaseModel):
