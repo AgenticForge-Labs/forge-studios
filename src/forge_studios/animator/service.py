@@ -102,6 +102,27 @@ def failure_recovery_plan(failure_class: str|None, reference_asset_ids: list[str
     }
 
 
+def _persist_generation_attempt(package: EpisodePackage, attempt: GenerationAttempt) -> None:
+    """Keep provider attempt state in the package, not only in ephemeral JSONL telemetry."""
+    if not isinstance(package.trace,dict):
+        package.trace={}
+    attempts=package.trace.setdefault('generation_attempts',[])
+    if not isinstance(attempts,list):
+        attempts=[]
+        package.trace['generation_attempts']=attempts
+    record=attempt.model_dump(mode='json')
+    for index in range(len(attempts)-1,-1,-1):
+        prior=attempts[index]
+        if isinstance(prior,dict) and prior.get('attempt_id')==attempt.attempt_id:
+            attempts[index]=record
+            break
+    else:
+        attempts.append(record)
+    package.trace['last_generation_attempt_id']=attempt.attempt_id
+    if attempt.outcome=='failed':
+        package.trace['last_generation_failure']=record
+
+
 def _continuity_role(asset: AssetRecord) -> str:
     role=(asset.role or '').casefold()
     tags={tag.casefold() for tag in asset.tags}
@@ -307,6 +328,7 @@ class AnimatorService:
             'source_beat_ids':shot.source_beat_ids,
         }
         attempt=GenerationAttempt(production_id=package.production_id,episode_id=package.episode_id,shot_id=shot_id,role=role,provider=self.provider.name,prompt=prompt,reference_asset_ids=reference_ids,options=shot.provider_options,metadata={'shot_features':shot_features,'reference_inputs':reference_inputs,'boundary_inputs':boundary_inputs})
+        _persist_generation_attempt(package,attempt)
         self.telemetry.emit('generation_attempt.started',**attempt.model_dump(mode='json'))
         started=time.perf_counter()
         try:
@@ -344,6 +366,7 @@ class AnimatorService:
                 )
                 exc.add_note('Provider content-policy rejection: use failure_diagnostics.recovery to isolate prompt/reference causes; Forge Studios does not use an LLM to rewrite prompts.')
             attempt.outcome='failed'; attempt.error=str(exc); attempt.latency_ms=(time.perf_counter()-started)*1000
+            _persist_generation_attempt(package,attempt)
             self.telemetry.emit('generation_attempt.failed',**attempt.model_dump(mode='json')); raise
         assets=[]
         for result in results:
@@ -376,6 +399,7 @@ class AnimatorService:
                 shot_features=shot_features,
             )
         attempt.outcome='succeeded'; attempt.asset_ids=[a.asset_id for a in assets]; attempt.model=assets[0].model if assets else None; attempt.latency_ms=(time.perf_counter()-started)*1000
+        _persist_generation_attempt(package,attempt)
         self.telemetry.emit('generation_attempt.succeeded',**attempt.model_dump(mode='json'))
         return assets
     @staticmethod
