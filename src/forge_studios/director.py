@@ -34,10 +34,18 @@ class DirectorResult:
     next_work: WorkItem | None = None
 
 
+def _requires_planning_storyboard(package: EpisodePackage) -> bool:
+    """Old packages may still use planning stills; v5 boundary-first packages do not."""
+    trace=package.trace if isinstance(package.trace,dict) else {}
+    contract=trace.get('production_contract') if isinstance(trace,dict) else None
+    return not (isinstance(contract,dict) and contract.get('planning_storyboard_images') is False)
+
+
 def plan_work(package: EpisodePackage) -> list[WorkItem]:
     """Derive executable/review work from the package without changing narrative order."""
     work=[]
     chain_predecessors={}
+    require_storyboard=_requires_planning_storyboard(package)
     for candidate in [shot for scene in package.scenes for shot in scene.shots]:
         if candidate.frame_plan.mode=='chained_start' or (candidate.frame_plan.mode=='start_and_end' and candidate.frame_plan.chain_from_shot_id):
             try:
@@ -47,7 +55,7 @@ def plan_work(package: EpisodePackage) -> list[WorkItem]:
             chain_predecessors.setdefault(predecessor.shot_id,[]).append(candidate.shot_id)
     for scene in package.scenes:
         for shot in scene.shots:
-            if not shot.approved_storyboard_asset_id:
+            if require_storyboard and not shot.approved_storyboard_asset_id:
                 if shot.storyboard_asset_ids:
                     work.append(WorkItem(shot.shot_id,'review_storyboard','Storyboard candidates await approval'))
                 else:
@@ -134,25 +142,20 @@ class DirectorService:
         telemetry: TelemetrySink|None=None,
         physical_executor: Callable[[EpisodePackage,str],str]|None=None,
     ):
-        self.animator=animator
-        self.telemetry=telemetry or TelemetrySink()
-        self.physical_executor=physical_executor
+        self.animator=animator; self.telemetry=telemetry or TelemetrySink(); self.physical_executor=physical_executor
 
     def run_until_blocked(self, package: EpisodePackage, policy: AutonomyPolicy|None=None) -> DirectorResult:
         try:
             assert_generation_preflight(package)
         except ValueError as exc:
             return DirectorResult('blocked',0,WorkItem('', 'blocked', str(exc)))
-        policy=policy or AutonomyPolicy()
-        completed=0
+        policy=policy or AutonomyPolicy(); completed=0
         while completed < policy.max_actions:
             work=plan_work(package)
             if not work:
                 self.telemetry.emit('director.complete',production_id=package.production_id,episode_id=package.episode_id,actions_completed=completed)
                 return DirectorResult('complete',completed,None)
-            item=work[0]
-            shot=package.find_shot(item.shot_id)
-
+            item=work[0]; shot=package.find_shot(item.shot_id)
             if item.action=='generate_storyboard':
                 self.animator.generate(package,item.shot_id,role='storyboard'); completed += 1; continue
             if item.action=='review_storyboard':
