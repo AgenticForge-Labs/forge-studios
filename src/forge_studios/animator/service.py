@@ -9,6 +9,34 @@ from ..telemetry import TelemetrySink
 ROLE_KIND={'storyboard':'storyboard_image','start_frame':'start_frame','end_frame':'end_frame','video':'generated_clip'}
 ROLE_PROMPT={'storyboard':'storyboard_prompt','start_frame':'start_frame_prompt','end_frame':'end_frame_prompt','video':'video_prompt'}
 
+def _camera_summary(shot) -> str:
+    return '; '.join(
+        f'{key}: {shot.camera[key]}' for key in ('shot_type','framing','axis','composition')
+        if isinstance(shot.camera.get(key),str) and shot.camera[key].strip()
+    )
+
+def _constraint_values(shot, key: str) -> list[str]:
+    constraints=shot.visual_constraints if isinstance(shot.visual_constraints,dict) else {}
+    values=constraints.get(key)
+    if not isinstance(values,list): return []
+    return [str(value).strip() for value in values if str(value).strip()]
+
+def production_prompt_suffix(shot, role: str) -> str:
+    """Add deterministic EpisodePackage grounding without creatively rewriting the shot."""
+    lines=[]
+    camera=_camera_summary(shot)
+    if camera: lines.append(f'Camera must preserve: {camera}.')
+    must_show=_constraint_values(shot,'must_show')
+    if must_show: lines.append('Required visible elements: '+'; '.join(must_show)+'.')
+    must_not_show=_constraint_values(shot,'must_not_show')
+    if must_not_show: lines.append('Forbidden additions or substitutions: '+'; '.join(must_not_show)+'.')
+    if shot.continuity_asset_ids:
+        lines.append('Treat the supplied canonical references as authoritative for character identity and established site geometry; do not replace established architecture with a generic structure.')
+    if role=='storyboard':
+        lines.append('Depict this shot\'s specific settled state and composition, not a generic character portrait or unrelated establishing view.')
+    if not lines: return ''
+    return '\n\nProduction constraints:\n'+'\n'.join(f'- {line}' for line in lines)
+
 def storyboard_fallback_prompt(shot) -> str:
     """Use shot action and its settled result when no hand-authored board prompt exists."""
     ending=getattr(shot,'end_frame_prompt',None) if shot.render_strategy in {'generated_video','hybrid'} else None
@@ -16,8 +44,7 @@ def storyboard_fallback_prompt(shot) -> str:
     if not isinstance(blocking,list): blocking=[]
     state=(ending.strip() if isinstance(ending,str) and ending.strip()
            else blocking[-1] if blocking else shot.image_prompt or shot.visual)
-    camera='; '.join(f'{key}: {shot.camera[key]}' for key in ('framing','axis','composition')
-                     if isinstance(shot.camera.get(key),str) and shot.camera[key].strip())
+    camera=_camera_summary(shot)
     parts=[
         'Create one representative storyboard still, not a collage or motion-blurred sequence. '
         'It may show a stable result of the movement rather than movement itself.',
@@ -52,6 +79,14 @@ class AnimatorService:
         prompt=(specific or storyboard_fallback_prompt(shot)) if role=='storyboard' else (
             specific or (shot.image_prompt if role!='video' else None) or self._default_prompt(shot,role)
         )
+        # Generated shot plans from Forge Worlds have an explicit storyboard prompt
+        # plus a richer image prompt. Keep the richer design anchor for those plans,
+        # but do not add it to the Studios fallback: the fallback intentionally uses
+        # the settled/end state rather than a potentially different starting pose.
+        if role=='storyboard' and specific and isinstance(shot.image_prompt,str) and shot.image_prompt.strip():
+            image_anchor=shot.image_prompt.strip()
+            if image_anchor not in prompt:
+                prompt += '\n\nVisual design anchor from the EpisodePackage: '+image_anchor
         reference_ids=list(shot.continuity_asset_ids)
         start_id=shot.approved_start_frame_asset_id or shot.frame_plan.start_asset_id
         end_id=shot.approved_end_frame_asset_id or shot.frame_plan.end_asset_id
@@ -89,6 +124,7 @@ class AnimatorService:
             prompt += (f'\n\nReference image {len(reference_ids)} is this shot\'s approved start frame. '
                        'Preserve its character design, architecture, light, props, and camera axis; change only the '
                        'intended pose and ending composition.')
+        prompt += production_prompt_suffix(shot,role)
         refs=[self._asset_uri(package,a) for a in reference_ids]
         request=MediaRequest(kind='video' if role=='video' else 'image',shot_id=shot_id,role=role,prompt=prompt,reference_assets=tuple(refs),start_frame_asset=self._asset_uri(package,start_id) if start_id else None,end_frame_asset=self._asset_uri(package,end_id) if end_id else None,options=shot.provider_options)
         shot_features={

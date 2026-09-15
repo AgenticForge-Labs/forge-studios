@@ -14,7 +14,7 @@ from forge_studios.package_ops import (
     set_prompt,
 )
 from forge_studios.providers import MockProvider
-from forge_studios.providers.base import MediaRequest
+from forge_studios.providers.base import MediaRequest, MediaResult
 from forge_studios.providers.fal import (
     FalProvider,
     image_model_profile,
@@ -61,6 +61,41 @@ def test_batch_storyboard_generation_skips_existing_candidates(tmp_path):
     generated=generate_storyboard_candidates(p,svc)
     assert [asset.shot_id for asset in generated]==['sh2']
     assert p.find_shot('sh1').storyboard_asset_ids==[first.asset_id]
+
+
+def test_storyboard_generation_keeps_design_anchor_and_locked_constraints():
+    class CaptureProvider:
+        name='capture'
+        def __init__(self): self.request=None
+        def generate(self,request):
+            self.request=request
+            return [MediaResult(uri='asset://storyboard',provider=self.name,model='test-image')]
+
+    p=package(); shot=p.find_shot('sh1')
+    shot.storyboard_prompt='Settled view of Ember just beyond the open southern gap.'
+    shot.image_prompt='Use the canonical dormant south-facing Fire Forge view. Keep the open gap and broad steps. No glow or fire.'
+    shot.camera={
+        'shot_type':'rear three-quarter follow view',
+        'axis':'southward exit axis',
+        'composition':'Ember, open gap, broad steps, and nearby path remain readable',
+    }
+    shot.visual_constraints={
+        'must_show':['open gap between freestanding monoliths','broad steps','dirt path'],
+        'must_not_show':['doorway','fireplace','fire'],
+    }
+    register_asset(p,asset_id='forge_south',uri='asset://forge-south',kind='reference_image',status='canon',authority='locked')
+    add_reference(p,'sh1','forge_south')
+    provider=CaptureProvider()
+
+    AnimatorService(provider).generate(p,'sh1',role='storyboard')
+
+    prompt=provider.request.prompt
+    assert 'Visual design anchor from the EpisodePackage' in prompt
+    assert 'canonical dormant south-facing Fire Forge view' in prompt
+    assert 'shot_type: rear three-quarter follow view' in prompt
+    assert 'Required visible elements: open gap between freestanding monoliths; broad steps; dirt path.' in prompt
+    assert 'Forbidden additions or substitutions: doorway; fireplace; fire.' in prompt
+    assert 'supplied canonical references as authoritative' in prompt
 
 
 def test_director_can_fully_auto_run_when_explicitly_allowed(tmp_path):
