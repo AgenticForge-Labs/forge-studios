@@ -235,7 +235,7 @@ def build_storyboard(package: EpisodePackage, path: str | Path) -> Path:
 <style>{_storyboard_styles()}</style>
 <h1>{html.escape(package.title)} — Production Storyboard</h1>
 <p>{html.escape(package.premise)}</p>
-<div class="explain"><b>This is the final human pre-movie review artifact.</b> Each unit shows the actual candidate/approved START and END frames plus the prose motion/performance prompt that will be passed to video generation. There are no separate storyboard stills. A continuous successor reuses the previous end frame exactly. <a href="{html.escape(guide_path.name)}">Open the image-generation guide →</a></div>
+<div class="explain"><b>This is the final human pre-movie review artifact.</b> Each unit shows the exact boundary images supplied to the model: the actual candidate/approved START and END frames plus the prose motion/performance prompt that will be passed to video generation. There are no separate storyboard stills. A continuous successor reuses the previous end frame exactly. <a href="{html.escape(guide_path.name)}">Open the image-generation guide →</a></div>
 {''.join(cards)}'''
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(doc)
