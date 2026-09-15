@@ -287,7 +287,7 @@ def _guide_card(package: EpisodePackage, *, title: str, asset_id: str, fallback:
     return f'''<article>
 <h2>{html.escape(title)}</h2>
 <div class="equation"><b>{' + '.join(f'INPUT {index}' for index in range(1, len(inputs)+1)) if inputs else 'TEXT-ONLY INPUT'} + PROMPT → OUTPUT</b></div>
-<h3>Inputs in provider order</h3>
+<h3>Input images, in provider order</h3>
 <div class="inputs">{''.join(inputs) if inputs else '<span class="muted">No input images</span>'}</div>
 <h3>Exact prompt</h3>
 <pre>{html.escape(_generation_prompt(asset, fallback))}</pre>
