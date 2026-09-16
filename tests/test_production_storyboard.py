@@ -4,7 +4,7 @@ import pytest
 
 from forge_studios.animator import AnimatorService
 from forge_studios.contracts import AssetRecord, EpisodePackage, FramePlan, Scene, Shot
-from forge_studios.frame_plan import FramePlanError, validate_frame_plans
+from forge_studios.frame_plan import validate_frame_plans
 from forge_studios.providers.base import MediaResult
 from forge_studios.storyboard import build_storyboard
 
@@ -25,7 +25,7 @@ def _asset(asset_id, kind, uri, *, status='approved', shot_id=None, generation=N
     return AssetRecord(asset_id=asset_id, kind=kind, uri=uri, status=status, shot_id=shot_id, metadata=metadata)
 
 
-def test_adjacent_generated_video_requires_exact_endpoint_handoff_unless_cut_is_declared():
+def test_adjacent_generated_video_does_not_imply_exact_endpoint_handoff():
     package = EpisodePackage(
         production_id='p', episode_id='e', title='Continuity',
         scenes=[
@@ -39,12 +39,9 @@ def test_adjacent_generated_video_requires_exact_endpoint_handoff_unless_cut_is_
             )]),
         ],
     )
-    issues = validate_frame_plans(package)
-    assert issues[0].code == 'CONTINUOUS_VIDEO_ENDPOINT_HANDOFF_REQUIRED'
-    package.find_shot('recover').frame_plan.chain_from_shot_id = 'jump'
-    assert validate_frame_plans(package) == []
-    package.find_shot('recover').frame_plan.chain_from_shot_id = None
-    package.find_shot('recover').edit_intent['editorial_boundary'] = 'hard cut to a new camera axis'
+    # Legacy packages have no compact-map transition metadata. Studios must not
+    # invent editorial continuity from mere adjacency. New packages carry the
+    # explicit transition contract and are covered in test_explicit_continuity_contract.
     assert validate_frame_plans(package) == []
 
 
@@ -79,7 +76,7 @@ def test_image_generation_request_is_structured_json_with_indexed_reference_role
     assert 'poised on the bowl altar edge' in payload['instruction']
 
 
-def test_animator_blocks_second_independent_start_before_spending_media_work():
+def test_animator_allows_independent_start_when_no_explicit_handoff_is_declared():
     first = Shot(
         shot_id='jump', duration_seconds=8, visual='Jump.', render_strategy='generated_video',
         frame_plan=FramePlan(mode='start_and_end'),
@@ -87,12 +84,15 @@ def test_animator_blocks_second_independent_start_before_spending_media_work():
     second = Shot(
         shot_id='ground', duration_seconds=8, visual='Continue on ground.', render_strategy='generated_video',
         frame_plan=FramePlan(mode='start_and_end'),
+        start_frame_prompt='Ember settled on the ground in a new medium composition.',
+        end_frame_prompt='Ember settled after looking back toward the altar.',
     )
     package = EpisodePackage(production_id='p', episode_id='e', title='x', scenes=[Scene(scene_id='s', shots=[first, second])])
     provider = CaptureProvider()
-    with pytest.raises(FramePlanError, match='approved end frame|must inherit'):
-        AnimatorService(provider).generate(package, 'ground', role='start_frame')
-    assert provider.requests == []
+    AnimatorService(provider).generate(package, 'ground', role='start_frame')
+    assert len(provider.requests) == 1
+    assert provider.requests[0].shot_id == 'ground'
+    assert provider.requests[0].role == 'start_frame'
 
 
 def test_production_storyboard_uses_boundary_frames_and_writes_image_guide(tmp_path):
