@@ -99,7 +99,11 @@ def test_end_frame_uses_exact_approved_start_as_a_real_image_reference():
     request = provider.requests[0]
     assert request.reference_assets == ('/tmp/ember.png', '/tmp/forge.png', '/tmp/wake_start.png')
     assert request.start_frame_asset == '/tmp/wake_start.png'
-    assert 'Reference image 3 is this shot\'s approved start frame' in request.prompt
+    import json
+    reference = json.loads(request.prompt)['reference_images'][2]
+    assert reference['image'] == 'Image 3'
+    assert reference['production_role'] == 'approved_start_frame'
+    assert reference['asset_id'] == 'wake_start'
     assert asset.source_asset_ids == ['ember', 'forge', 'wake_start']
 
 

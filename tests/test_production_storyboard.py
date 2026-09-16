@@ -52,7 +52,7 @@ def test_image_generation_request_is_structured_json_with_indexed_reference_role
         frame_plan=FramePlan(mode='start_and_end'),
         start_frame_prompt='Ember poised on the bowl altar edge.',
         end_frame_prompt='Ember grounded on all four paws beside the altar.',
-        camera={'shot_type': 'side full-body', 'axis': 'altar side'},
+        camera={'shot_type': 'side full-body', 'axis': 'altar side', 'start_frame': {'shot_type': 'side full-body', 'axis': 'altar side'}},
         visual_constraints={'must_show': ['bowl altar', 'all four paws'], 'must_not_show': ['doorway']},
         continuity_asset_ids=['ember', 'forge'],
     )

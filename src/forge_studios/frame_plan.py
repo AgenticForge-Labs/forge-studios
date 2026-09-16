@@ -264,6 +264,12 @@ def validate_frame_plans(package: EpisodePackage, *, require_approved_end_frames
     require_explicit_continuity = (package.trace or {}).get('semantic_fingerprint_version') == 'v1'
 
     for shot in selected:
+        for role in ('start_frame', 'end_frame'):
+            camera = shot.camera.get(role)
+            if camera is not None and not isinstance(camera, dict):
+                issues.append(FramePlanIssue('INVALID_BOUNDARY_CAMERA', f'camera.{role} must be a static camera object.', shot.shot_id))
+            elif isinstance(camera, dict) and camera.get('movement') not in (None, '', 'none', 'static', 'locked'):
+                issues.append(FramePlanIssue('TEMPORAL_BOUNDARY_CAMERA', f'camera.{role} must not contain temporal movement.', shot.shot_id))
         issues.extend(_boundary_prompt_issues(shot, require_compositions=require_explicit_continuity))
         if shot.render_strategy == 'generated_video' and shot.duration_seconds > 20 + 1e-6:
             issues.append(FramePlanIssue(

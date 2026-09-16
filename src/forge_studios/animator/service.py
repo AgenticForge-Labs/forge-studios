@@ -10,10 +10,28 @@ from ..telemetry import TelemetrySink
 ROLE_KIND={'storyboard':'storyboard_image','start_frame':'start_frame','end_frame':'end_frame','video':'generated_clip'}
 ROLE_PROMPT={'storyboard':'storyboard_prompt','start_frame':'start_frame_prompt','end_frame':'end_frame_prompt','video':'video_prompt'}
 
-def _camera_summary(shot) -> str:
+def boundary_camera(shot, role: str) -> dict:
+    """Compile authored static intent; never invent a destination camera pose."""
+    camera = dict(shot.camera)
+    specific = camera.pop(role, None) if role in {'start_frame','end_frame'} else None
+    camera.pop('start_frame', None)
+    camera.pop('end_frame', None)
+    if role in {'start_frame','end_frame'}:
+        camera.pop('movement', None)
+        if isinstance(specific, dict):
+            # Endpoint objects are complete static intent, not additions to a
+            # possibly contradictory shot-wide tracking composition.
+            return {**({'viewpoint': camera['viewpoint']} if 'viewpoint' in camera else {}), **specific}
+        # Legacy prompts already carry the boundary composition. Repeating the
+        # temporal shot composition here can turn a grounded pose into a jump.
+        return {key: value for key, value in camera.items() if key in {'viewpoint','axis'}}
+    return camera
+
+def _camera_summary(shot, role: str='storyboard') -> str:
+    camera = boundary_camera(shot, role)
     return '; '.join(
-        f'{key}: {shot.camera[key]}' for key in ('shot_type','framing','distance','axis','composition')
-        if isinstance(shot.camera.get(key),str) and shot.camera[key].strip()
+        f'{key}: {camera[key]}' for key in ('shot_type','framing','distance','axis','composition')
+        if isinstance(camera.get(key),str) and camera[key].strip()
     )
 
 def _constraint_values(shot, key: str) -> list[str]:
@@ -25,7 +43,7 @@ def _constraint_values(shot, key: str) -> list[str]:
 def production_prompt_suffix(shot, role: str) -> str:
     """Add deterministic EpisodePackage grounding without creatively rewriting the shot."""
     lines=[]
-    camera=_camera_summary(shot)
+    camera=_camera_summary(shot, role)
     if camera: lines.append(f'Camera must preserve: {camera}.')
     must_show=_constraint_values(shot,'must_show')
     if must_show: lines.append('Required visible elements: '+'; '.join(must_show)+'.')
@@ -121,10 +139,10 @@ def _reference_input(package: EpisodePackage, shot, asset_id: str, *, start_id: 
         return {'asset_id':asset_id,'production_role':'storyboard_composition','use':'approved planning/composition guide; use layout only, while reusable identity/site references remain design authority'}
     if start_id and asset_id == start_id:
         inherited=bool(shot.frame_plan.chain_from_shot_id)
-        return {'asset_id':asset_id,'production_role':'approved_predecessor_endpoint' if inherited else 'approved_start_frame','use':'exact approved boundary frame; preserve identity, geometry, lighting, props, scale, and camera axis while changing only the intended destination state'}
+        return {'asset_id':asset_id,'production_role':'approved_predecessor_endpoint' if inherited else 'approved_start_frame','use':'boundary continuity evidence for identity, geometry, lighting, props and scale; follow the authored destination state and camera, not the source pose or crop'}
     asset=package.find_asset(asset_id); production_role=_continuity_role(asset) if asset.kind=='reference_image' else f'production_{asset.kind}'; role_suffix=f' ({asset.role})' if asset.role else ''
     uses={
-        'canonical_identity':'character identity, anatomy, proportions, materials, colors, costume and distinctive design; do not copy the source pose or camera',
+        'canonical_identity':'identity, anatomy, proportions, materials, colors, costume and distinctive design of the authored visible parts only; do not add a face/full body or copy source pose/camera merely because the reference shows them',
         'reusable_character_pose':'approved prior character pose/view useful for continuity; preserve identity but follow current blocking and camera',
         'canonical_site_geometry':'site architecture, geometry, materials, scale and spatial relationships; compose only a view consistent with this geometry',
         'reusable_site_view':'approved prior site view useful for continuity; preserve established geometry and current camera-axis relationships',
@@ -150,7 +168,7 @@ def structured_image_prompt(package: EpisodePackage, shot, role: str, instructio
     allow_text=bool((shot.provider_options or {}).get('allow_text'))
     output=('one clean 16:9 frame; no collage, borders, or motion blur' if allow_text else 'one clean 16:9 frame; no collage, labels, captions, subtitles, speech bubbles, readable text, letters, numbers, logos, watermarks, UI, borders, or motion blur')
     payload={
-        'task':'generate one production image','frame_role':role,'instruction':instruction,'camera':shot.camera,
+        'task':'generate one production image','frame_role':role,'instruction':instruction,'camera':boundary_camera(shot, role),
         'composition_constraints':{'must_show':_constraint_values(shot,'must_show'),'must_not_show':_constraint_values(shot,'must_not_show')},
         'reference_images':_reference_inputs(package,shot,reference_ids,start_id=start_id),
         'continuity':{'preserve_character_identity':True,'preserve_established_site_geometry':True,'preserve_scale_materials_lighting_and_fixed_props':True,'reference_images_are_design_authority_not_default_pose':True},
@@ -222,8 +240,11 @@ class AnimatorService:
             raise ValueError(f'Shot {shot_id!r} needs an approved start frame before generating its end frame.')
         if role=='end_frame' and start_id and start_id not in reference_ids:
             reference_ids.append(start_id)
-            prompt += f"\n\nReference image {len(reference_ids)} is this shot's approved start frame. Preserve its character design, architecture, light, props, and camera axis; change only the intended pose and ending composition."
-        prompt += production_prompt_suffix(shot,role)
+        # Image requests already carry structured camera, constraints and
+        # reference roles. Duplicating them in instruction can overpower the
+        # unique endpoint state. Video retains its temporal grounding suffix.
+        if role == 'video':
+            prompt += production_prompt_suffix(shot,role)
         reference_inputs=_reference_inputs(package,shot,reference_ids,start_id=start_id); boundary_inputs=_boundary_inputs(shot,start_id=start_id,end_id=end_id)
         if role!='video': prompt=structured_image_prompt(package,shot,role,prompt,reference_ids,start_id=start_id)
         refs=[self._asset_uri(package,a) for a in reference_ids]
