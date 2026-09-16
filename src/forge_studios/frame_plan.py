@@ -94,8 +94,6 @@ def _scene_location_by_shot(package: EpisodePackage) -> dict[str, str | None]:
     }
 
 
-# Boundary stills are endpoint states, not illustrations of the motion that the
-# image-to-video model is expected to synthesize between them.
 _TRANSIENT_BOUNDARY_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ('mid-motion', re.compile(
         r'\bmid[- ]?(?:jump|leap|fall|descent|landing|turn|stride|step|run|walk|flight)\b',
@@ -145,18 +143,20 @@ def _boundary_core(prompt: str | None) -> str:
     return prompt.strip()
 
 
-def _boundary_prompt_issues(shot: Shot) -> list[FramePlanIssue]:
+def _boundary_prompt_issues(shot: Shot, *, require_compositions: bool = False) -> list[FramePlanIssue]:
     if shot.render_strategy != 'generated_video' or shot.frame_plan.mode != 'start_and_end':
         return []
     issues: list[FramePlanIssue] = []
     for field_name in ('start_frame_prompt', 'end_frame_prompt'):
         prompt = getattr(shot, field_name, None)
-        if not _boundary_core(prompt):
-            issues.append(FramePlanIssue(
-                'BOUNDARY_FRAME_COMPOSITION_MISSING',
-                f"Shot {shot.shot_id!r} {field_name} has no shot-specific settled composition. Shared guardrail/reference text is not a boundary design.",
-                shot.shot_id,
-            ))
+        core = _boundary_core(prompt)
+        if not core:
+            if require_compositions:
+                issues.append(FramePlanIssue(
+                    'BOUNDARY_FRAME_COMPOSITION_MISSING',
+                    f"Shot {shot.shot_id!r} {field_name} has no shot-specific settled composition. Shared guardrail/reference text is not a boundary design.",
+                    shot.shot_id,
+                ))
             continue
         markers = transient_boundary_markers(prompt)
         if markers:
@@ -264,25 +264,20 @@ def validate_frame_plans(package: EpisodePackage, *, require_approved_end_frames
     require_explicit_continuity = (package.trace or {}).get('semantic_fingerprint_version') == 'v1'
 
     for shot in selected:
-        issues.extend(_boundary_prompt_issues(shot))
+        issues.extend(_boundary_prompt_issues(shot, require_compositions=require_explicit_continuity))
         if shot.render_strategy == 'generated_video' and shot.duration_seconds > 20 + 1e-6:
             issues.append(FramePlanIssue(
                 'GENERATED_VIDEO_DURATION_EXCEEDED',
                 f"Shot {shot.shot_id!r} is {shot.duration_seconds:g}s; generated video is capped at 20s.",
                 shot.shot_id,
             ))
-        if shot.render_strategy == 'generated_video' and shot.frame_plan.mode != 'start_and_end':
-            # Legacy start_only/chained_start remains supported outside the new
-            # explicit-continuity package contract.
-            if require_explicit_continuity:
-                issues.append(FramePlanIssue(
-                    'ANIMATOR_VIDEO_REQUIRES_START_AND_END',
-                    f"Shot {shot.shot_id!r} must use start_and_end under the current animator production contract.",
-                    shot.shot_id,
-                ))
+        if shot.render_strategy == 'generated_video' and shot.frame_plan.mode != 'start_and_end' and require_explicit_continuity:
+            issues.append(FramePlanIssue(
+                'ANIMATOR_VIDEO_REQUIRES_START_AND_END',
+                f"Shot {shot.shot_id!r} must use start_and_end under the current animator production contract.",
+                shot.shot_id,
+            ))
 
-    # New packages carry an explicit editorial transition decision from Worlds.
-    # Studios validates that decision; it never invents continuity from adjacency.
     for shot in selected:
         if shot.render_strategy != 'generated_video' or shot.frame_plan.mode != 'start_and_end':
             continue
@@ -304,8 +299,6 @@ def validate_frame_plans(package: EpisodePackage, *, require_approved_end_frames
                 ))
             continue
         if transition_mode != 'inherit_endpoint':
-            # Legacy package: explicit chain semantics below remain valid, but
-            # absence of an editorial boundary no longer creates a chain.
             continue
 
         index = positions[shot.shot_id]
