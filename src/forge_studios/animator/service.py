@@ -58,7 +58,7 @@ def production_prompt_suffix(shot, role: str) -> str:
 
 def storyboard_fallback_prompt(shot) -> str:
     """Legacy planning-still fallback retained for old packages only."""
-    ending=getattr(shot,'end_frame_prompt',None) if shot.render_strategy in {'generated_video','hybrid'} else None
+    ending=getattr(shot,'end_frame_prompt',None)
     blocking=shot.performance_intent.get('blocking') or []
     if not isinstance(blocking,list): blocking=[]
     state=(ending.strip() if isinstance(ending,str) and ending.strip()
@@ -78,6 +78,10 @@ def assert_generation_preflight(package: EpisodePackage) -> None:
     report=package.trace.get('production_preflight') if isinstance(package.trace,dict) else None
     if package.status=='blocked' or (isinstance(report,dict) and report.get('is_valid') is False):
         raise ValueError('EpisodePackage has hard production-preflight errors; fix and revalidate it before media generation.')
+    issues=validate_frame_plans(package)
+    if issues:
+        issue=issues[0]
+        raise FramePlanError(issue)
 
 
 def reference_isolation_plan(reference_asset_ids: list[str]) -> dict:
@@ -205,8 +209,7 @@ class AnimatorService:
     def generate(self, package: EpisodePackage, shot_id: str, *, role: str='storyboard') -> list[AssetRecord]:
         assert_generation_preflight(package); shot=package.find_shot(shot_id)
         if role not in ROLE_KIND: raise ValueError(f'unknown generation role {role!r}')
-        if shot.execution_route=='puppeteer' and role!='storyboard': raise ValueError('physical-only shot belongs to Forge Puppeteer')
-        if role=='video' and shot.render_strategy not in {'generated_video','hybrid'}: raise ValueError('shot is not configured for generated video')
+        if role=='video' and shot.render_strategy != 'generated_video': raise ValueError('shot is not configured for generated video')
         if role!='storyboard':
             issues=validate_frame_plans(package,shot_id=shot_id)
             if issues: raise FramePlanError(issues[0])

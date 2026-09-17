@@ -25,7 +25,7 @@ def bind_missing_references(package: EpisodePackage, *, manifest_path: str | Pat
     if not isinstance(raw, dict) or raw.get('kind') != 'asset_manifest':
         raise ValueError(f'asset manifest must have kind=asset_manifest: {manifest_path}')
     records = {str(item.get('asset_id')): item for item in raw.get('assets', []) if isinstance(item, dict) and item.get('asset_id')}
-    referenced = {asset_id for scene in package.scenes for shot in scene.shots for asset_id in shot.continuity_asset_ids}
+    referenced = {asset_id for shot in package.shots for asset_id in shot.reference_asset_ids}
     existing = {asset.asset_id for asset in package.assets}
     bound: list[AssetRecord] = []
     root = Path(asset_root).expanduser().resolve()

@@ -1,6 +1,5 @@
 from __future__ import annotations
-import argparse,getpass,json,os,webbrowser
-from pathlib import Path
+import argparse,getpass,json,webbrowser
 from .animator import AnimatorService, assert_generation_preflight
 from .asset_resolution import bind_missing_references,discover_asset_sources
 from .continuity import extract_boundary_frames
@@ -14,7 +13,6 @@ from .providers import FalProvider,MockProvider
 from .local_config import LocalSecretStore
 from .storyboard import build_storyboard,generate_boundary_candidates
 from .telemetry import TelemetrySink
-from .puppeteer_bridge import dispatch
 from .timeline import save_timeline
 from .timeline_adapter import timeline_from_episode_package
 from .shorts import render_short,write_short_edit_plan
@@ -53,7 +51,7 @@ def _package(args):
     p=load_package(args.path); issues=validate_frame_plans(p)
     if issues:
         print(json.dumps({'valid':False,'frame_plan_issues':[issue.as_dict() for issue in issues]},indent=2)); return 1
-    print(f'valid {p.package_version}: {p.episode_id}; {sum(len(s.shots) for s in p.scenes)} shots')
+    print(f'valid {p.package_version}: {p.episode_id}; {len(p.shots)} shots')
 
 def _storyboard(args):
     p=load_package(args.package)
@@ -80,14 +78,13 @@ def _storyboard(args):
         print(f'generated {len(generated)} boundary-frame candidate(s)')
     if args.auto_approve:
         approved=0
-        for scene in p.scenes:
-            for shot in scene.shots:
-                if not shot.frame_plan.chain_from_shot_id and not shot.approved_start_frame_asset_id and shot.start_frame_asset_ids:
-                    approve_asset(p,shot.shot_id,'start_frame',shot.start_frame_asset_ids[-1],sink,note='Batch boundary-frame auto-approval')
-                    approved += 1
-                if not shot.approved_end_frame_asset_id and shot.end_frame_asset_ids:
-                    approve_asset(p,shot.shot_id,'end_frame',shot.end_frame_asset_ids[-1],sink,note='Batch boundary-frame auto-approval')
-                    approved += 1
+        for shot in p.shots:
+            if not shot.frame_plan.chain_from_shot_id and not shot.approved_start_frame_asset_id and shot.start_frame_asset_ids:
+                approve_asset(p,shot.shot_id,'start_frame',shot.start_frame_asset_ids[-1],sink,note='Batch boundary-frame auto-approval')
+                approved += 1
+            if not shot.approved_end_frame_asset_id and shot.end_frame_asset_ids:
+                approve_asset(p,shot.shot_id,'end_frame',shot.end_frame_asset_ids[-1],sink,note='Batch boundary-frame auto-approval')
+                approved += 1
         save_json(args.package,p)
         print(f'approved {approved} boundary frame(s)')
     elif args.generate:
@@ -106,17 +103,10 @@ def _approve(args):
 def _reject(args):
     p=load_package(args.package); reject_asset(p,args.shot_id,args.asset_id,TelemetrySink(args.telemetry),reason=args.reason,tags=args.tag,scores=_scores(args.score)); save_json(args.package,p); print(args.asset_id)
 def _plan(args): print(json.dumps([w.__dict__ for w in plan_work(load_package(args.package))],indent=2))
-def _physical(args):
-    p=load_package(args.package); command=args.command or os.getenv('FORGE_PUPPETEER_CMD')
-    if not command: raise RuntimeError('Set --command or FORGE_PUPPETEER_CMD')
-    asset=dispatch(p,args.shot_id,command=command,output=args.out,telemetry=TelemetrySink(args.telemetry)); save_json(args.package,p); print(asset.asset_id)
 def _auto(args):
-    p=load_package(args.package); assert_generation_preflight(p); sink=TelemetrySink(args.telemetry); animator=AnimatorService(_provider(args.provider,args.output_dir),sink); command=args.puppeteer_command or os.getenv('FORGE_PUPPETEER_CMD'); physical_executor=None
-    if command:
-        def physical_executor(package,shot_id):
-            out=Path(args.output_dir)/'physical'/f'{shot_id}.json'; return dispatch(package,shot_id,command=command,output=out,telemetry=sink).asset_id
-    director=DirectorService(animator,telemetry=sink,physical_executor=physical_executor)
-    policy=AutonomyPolicy(auto_approve_storyboards=args.auto_approve_storyboards,auto_approve_frames=args.auto_approve_frames,auto_approve_clips=args.auto_approve_clips,auto_approve_takes=args.auto_approve_takes,allow_generated_video=args.allow_video,allow_physical_execution=args.allow_physical,max_actions=args.max_actions)
+    p=load_package(args.package); assert_generation_preflight(p); sink=TelemetrySink(args.telemetry); animator=AnimatorService(_provider(args.provider,args.output_dir),sink)
+    director=DirectorService(animator,telemetry=sink)
+    policy=AutonomyPolicy(auto_approve_frames=args.auto_approve_frames,auto_approve_clips=args.auto_approve_clips,allow_generated_video=args.allow_video,max_actions=args.max_actions)
     result=_run_with_failure_checkpoint(args.package,p,lambda: director.run_until_blocked(p,policy)); save_json(args.package,p); print(json.dumps({'status':result.status,'actions_completed':result.actions_completed,'next_work':result.next_work.__dict__ if result.next_work else None},indent=2))
 def _edit_plan(args): print(write_edit_plan(load_package(args.package),args.out))
 def _render(args): print(render(load_package(args.package),args.out,ffmpeg=args.ffmpeg,telemetry=TelemetrySink(args.telemetry)))
@@ -153,8 +143,7 @@ def build_parser():
     a=sub.add_parser('approve'); a.add_argument('--package',required=True); a.add_argument('--shot-id',required=True); a.add_argument('--kind',choices=['storyboard','start_frame','end_frame','clip','take'],required=True); a.add_argument('--asset-id',required=True); a.add_argument('--telemetry',default='.agenticforge/telemetry.jsonl'); _review_args(a); a.set_defaults(func=_approve)
     rj=sub.add_parser('reject'); rj.add_argument('--package',required=True); rj.add_argument('--shot-id',required=True); rj.add_argument('--asset-id',required=True); rj.add_argument('--telemetry',default='.agenticforge/telemetry.jsonl'); _review_args(rj,rejection=True); rj.set_defaults(func=_reject)
     d=sub.add_parser('plan'); d.add_argument('--package',required=True); d.set_defaults(func=_plan)
-    au=sub.add_parser('auto'); au.add_argument('--package',required=True); au.add_argument('--provider',choices=['mock','fal'],default='mock'); au.add_argument('--output-dir',default='outputs'); au.add_argument('--telemetry',default='.agenticforge/telemetry.jsonl'); au.add_argument('--auto-approve-storyboards',action='store_true',help='legacy option; ignored by boundary-first plans'); au.add_argument('--auto-approve-frames',action='store_true'); au.add_argument('--auto-approve-clips',action='store_true'); au.add_argument('--auto-approve-takes',action='store_true'); au.add_argument('--allow-video',action='store_true'); au.add_argument('--allow-physical',action='store_true'); au.add_argument('--puppeteer-command'); au.add_argument('--max-actions',type=int,default=100); au.set_defaults(func=_auto)
-    ph=sub.add_parser('physical'); ph.add_argument('--package',required=True); ph.add_argument('--shot-id',required=True); ph.add_argument('--command'); ph.add_argument('--out',required=True); ph.add_argument('--telemetry',default='.agenticforge/telemetry.jsonl'); ph.set_defaults(func=_physical)
+    au=sub.add_parser('auto'); au.add_argument('--package',required=True); au.add_argument('--provider',choices=['mock','fal'],default='mock'); au.add_argument('--output-dir',default='outputs'); au.add_argument('--telemetry',default='.agenticforge/telemetry.jsonl'); au.add_argument('--auto-approve-frames',action='store_true'); au.add_argument('--auto-approve-clips',action='store_true'); au.add_argument('--allow-video',action='store_true'); au.add_argument('--max-actions',type=int,default=100); au.set_defaults(func=_auto)
     ep=sub.add_parser('edit-plan'); ep.add_argument('--package',required=True); ep.add_argument('--out',required=True); ep.set_defaults(func=_edit_plan)
     rr=sub.add_parser('render'); rr.add_argument('--package',required=True); rr.add_argument('--out',required=True); rr.add_argument('--ffmpeg',default='ffmpeg'); rr.add_argument('--telemetry',default='.agenticforge/telemetry.jsonl'); rr.set_defaults(func=_render)
     sep=sub.add_parser('short-edit-plan'); sep.add_argument('--package',required=True); sep.add_argument('--short-id',required=True); sep.add_argument('--out',required=True); sep.set_defaults(func=_short_plan)

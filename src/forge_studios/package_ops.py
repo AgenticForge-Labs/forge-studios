@@ -6,7 +6,7 @@ from .contracts import AssetRecord, EpisodePackage, FramePlan
 from .frame_plan import FramePlanError, FramePlanIssue, predecessor_for, validate_frame_plans
 from .telemetry import TelemetrySink
 
-APPROVAL_FIELD={'storyboard':'approved_storyboard_asset_id','start_frame':'approved_start_frame_asset_id','end_frame':'approved_end_frame_asset_id','clip':'approved_clip_asset_id','take':'approved_take_id'}
+APPROVAL_FIELD={'start_frame':'approved_start_frame_asset_id','end_frame':'approved_end_frame_asset_id','clip':'approved_clip_asset_id'}
 PROMPT_FIELD={'image':'image_prompt','storyboard':'storyboard_prompt','start_frame':'start_frame_prompt','end_frame':'end_frame_prompt','video':'video_prompt'}
 
 def _record_review(asset: AssetRecord, *, decision: str, note: str|None=None, tags: list[str]|None=None, scores: dict[str,float]|None=None) -> dict[str,Any]:
@@ -21,7 +21,7 @@ def approve_asset(package: EpisodePackage, shot_id: str, kind: str, asset_id: st
     if asset.shot_id and asset.shot_id != shot_id: raise ValueError('asset belongs to another shot')
     inheriting=[]
     if kind=='end_frame':
-        inheriting=[successor for scene in package.scenes for successor in scene.shots
+        inheriting=[successor for successor in package.shots
                     if successor.frame_plan.mode=='start_and_end' and successor.frame_plan.chain_from_shot_id==shot_id]
         for successor in inheriting:
             issues=validate_frame_plans(package,shot_id=successor.shot_id)

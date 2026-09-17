@@ -58,8 +58,6 @@ def _chosen_asset_id(shot) -> str:
     chosen = (
         shot.final_clip_asset_id
         or shot.approved_clip_asset_id
-        or shot.approved_take_id
-        or shot.approved_storyboard_asset_id
         or shot.approved_start_frame_asset_id
     )
     if not chosen:

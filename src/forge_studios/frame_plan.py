@@ -4,6 +4,7 @@ import hashlib
 import json
 import re
 from dataclasses import asdict, dataclass
+from difflib import SequenceMatcher
 from typing import Any
 
 from .contracts import EpisodePackage, Shot
@@ -28,7 +29,7 @@ class FramePlanError(ValueError):
 
 
 def ordered_shots(package: EpisodePackage) -> list[Shot]:
-    return [shot for scene in package.scenes for shot in scene.shots]
+    return list(package.shots)
 
 
 def predecessor_for(package: EpisodePackage, shot: Shot) -> Shot:
@@ -87,11 +88,7 @@ def _viewpoint(shot: Shot) -> str:
 
 
 def _scene_location_by_shot(package: EpisodePackage) -> dict[str, str | None]:
-    return {
-        shot.shot_id: scene.location_id
-        for scene in package.scenes
-        for shot in scene.shots
-    }
+    return {shot.shot_id: shot.site_id for shot in package.shots}
 
 
 _TRANSIENT_BOUNDARY_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
@@ -120,6 +117,20 @@ _TRANSIENT_BOUNDARY_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
         r'\b(?:jumps|leaps|falls)\s+(?:from|off|down|toward|towards|to|across|over)\b',
         re.IGNORECASE,
     )),
+)
+
+_NONVISUAL_BOUNDARY_PATTERN = re.compile(
+    r"\b(?:tracking|track(?:s|ing)?|camera\s+(?:moves|glides|pans|pushes|follows|zooms)|"
+    r"rack\s+focus|ambient\s+(?:sound|audio)|sound\s+of|audible|voice|speaks?|says?|"
+    r"having|previously|afterward|hums?|humming|rustles?|birdsong|echo(?:es|ing)?|"
+    r"walks?|walking|jumps?|jumping|lands?|landing|turns?|turning|"
+    r"breathes?|breathing|twitches?|twitching|dilates?|dilating|lifts?|lifting|lowers?|lowering)\b",
+    re.IGNORECASE,
+)
+
+_PROVIDER_SENSITIVE_PATTERN = re.compile(
+    r"\b(?:intimate|unconscious|sensual|seductive|exposed|graphic)\b",
+    re.IGNORECASE,
 )
 
 
@@ -167,6 +178,13 @@ def _boundary_prompt_issues(shot: Shot, *, require_compositions: bool = False) -
                 'intermediate motion in video_prompt instead.',
                 shot.shot_id,
             ))
+        if _NONVISUAL_BOUNDARY_PATTERN.search(core) or re.search(r'["“”][^"“”]+["“”]', core):
+            issues.append(FramePlanIssue(
+                'BOUNDARY_FRAME_NONVISUAL_OR_TEMPORAL',
+                f"Shot {shot.shot_id!r} {field_name} contains motion, dialogue, audio, camera movement, or invisible history. "
+                'Boundary prompts must describe one static visible composition only.',
+                shot.shot_id,
+            ))
     start = _normalized_boundary_prompt(_boundary_core(getattr(shot, 'start_frame_prompt', None)))
     end = _normalized_boundary_prompt(_boundary_core(getattr(shot, 'end_frame_prompt', None)))
     if start and end and start == end:
@@ -176,34 +194,35 @@ def _boundary_prompt_issues(shot: Shot, *, require_compositions: bool = False) -
             'Describe the distinct state before the action and the distinct state after it; keep the transition in video_prompt.',
             shot.shot_id,
         ))
+    elif start and end and SequenceMatcher(None, start, end).ratio() > 0.88:
+        issues.append(FramePlanIssue(
+            'BOUNDARY_FRAME_PROMPTS_TOO_SIMILAR',
+            f"Shot {shot.shot_id!r} start and end prompts are too similar to establish visible change.",
+            shot.shot_id,
+        ))
+    provider_text = f"{shot.start_frame_prompt} {shot.end_frame_prompt} {shot.video_prompt}"
+    if _PROVIDER_SENSITIVE_PATTERN.search(provider_text):
+        issues.append(FramePlanIssue(
+            'PROVIDER_SENSITIVE_PROMPT_WORDING',
+            f"Shot {shot.shot_id!r} contains provider-sensitive wording; revise it in Forge Worlds before generation.",
+            shot.shot_id,
+        ))
     return issues
 
 
 def _semantic_shot_payload(shot: Shot) -> dict[str, Any]:
     return {
         'shot_id': shot.shot_id,
-        'source_beat_ids': list(shot.source_beat_ids),
+        'beat_id': shot.beat_id,
         'duration_seconds': shot.duration_seconds,
-        'purpose': shot.purpose,
-        'visual': shot.visual,
-        'entity_ids': list(shot.entity_ids),
-        'dialogue_ids': list(shot.dialogue_ids),
-        'camera': dict(shot.camera),
-        'visual_constraints': dict(shot.visual_constraints),
-        'performance_intent': dict(shot.performance_intent),
-        'edit_intent': dict(shot.edit_intent),
-        'continuity_asset_ids': list(shot.continuity_asset_ids),
-        'execution_route': shot.execution_route,
-        'render_strategy': shot.render_strategy,
-        'frame_plan': {
-            'mode': shot.frame_plan.mode,
-            'chain_from_shot_id': shot.frame_plan.chain_from_shot_id,
-        },
-        'image_prompt': shot.image_prompt,
+        'site_id': shot.site_id,
+        'character_ids': list(shot.character_ids),
+        'visible_entity_ids': list(shot.visible_entity_ids),
+        'reference_asset_ids': list(shot.reference_asset_ids),
+        'inherits_start_from_shot_id': shot.inherits_start_from_shot_id,
         'start_frame_prompt': shot.start_frame_prompt,
         'end_frame_prompt': shot.end_frame_prompt,
         'video_prompt': shot.video_prompt,
-        'provider_options': dict(shot.provider_options),
     }
 
 
@@ -216,19 +235,7 @@ def package_semantic_fingerprint(package: EpisodePackage) -> str:
         'world_id': package.world_id,
         'target_duration_seconds': package.target_duration_seconds,
         'beats': package.beats,
-        'dialogue': package.dialogue,
-        'scenes': [
-            {
-                'scene_id': scene.scene_id,
-                'source_beat_ids': list(scene.source_beat_ids),
-                'location_id': scene.location_id,
-                'summary': scene.summary,
-                'dramatic_goal': getattr(scene, 'dramatic_goal', ''),
-                'character_ids': list(getattr(scene, 'character_ids', []) or []),
-                'shots': [_semantic_shot_payload(shot) for shot in scene.shots],
-            }
-            for scene in package.scenes
-        ],
+        'shots': [_semantic_shot_payload(shot) for shot in package.shots],
     }
     raw = json.dumps(payload, sort_keys=True, separators=(',', ':'), ensure_ascii=False, default=str)
     return hashlib.sha256(raw.encode('utf-8')).hexdigest()
@@ -238,7 +245,7 @@ def _stale_package_issue(package: EpisodePackage) -> FramePlanIssue | None:
     trace = package.trace if isinstance(package.trace, dict) else {}
     expected = trace.get('semantic_fingerprint')
     version = trace.get('semantic_fingerprint_version')
-    if version != 'v1' or not isinstance(expected, str) or not expected:
+    if version != 'v2' or not isinstance(expected, str) or not expected:
         return None
     actual = package_semantic_fingerprint(package)
     if actual == expected:
@@ -261,7 +268,7 @@ def validate_frame_plans(package: EpisodePackage, *, require_approved_end_frames
     selected = [shot for shot in shots if shot_id is None or shot.shot_id == shot_id]
     positions = {item.shot_id: index for index, item in enumerate(shots)}
     locations = _scene_location_by_shot(package)
-    require_explicit_continuity = (package.trace or {}).get('semantic_fingerprint_version') == 'v1'
+    require_explicit_continuity = True
 
     for shot in selected:
         for role in ('start_frame', 'end_frame'):
@@ -366,13 +373,15 @@ def validate_frame_plans(package: EpisodePackage, *, require_approved_end_frames
             issues.append(exc.issue)
             continue
         endpoint = predecessor.approved_end_frame_asset_id
-        if shot.frame_plan.mode == 'start_and_end':
-            if positions[predecessor.shot_id] != positions[shot.shot_id] - 1:
-                issues.append(FramePlanIssue(
-                    'START_AND_END_NONADJACENT_PREDECESSOR',
-                    f"Shot {shot.shot_id!r} must inherit the immediately preceding end frame.",
-                    shot.shot_id, predecessor.shot_id,
-                ))
+        if (
+            shot.frame_plan.mode == 'start_and_end'
+            and positions[predecessor.shot_id] != positions[shot.shot_id] - 1
+        ):
+            issues.append(FramePlanIssue(
+                'START_AND_END_NONADJACENT_PREDECESSOR',
+                f"Shot {shot.shot_id!r} must inherit the immediately preceding end frame.",
+                shot.shot_id, predecessor.shot_id,
+            ))
         if endpoint and shot.frame_plan.start_asset_id and shot.frame_plan.start_asset_id != endpoint:
             issues.append(FramePlanIssue(
                 'CHAINED_START_ASSET_MISMATCH',

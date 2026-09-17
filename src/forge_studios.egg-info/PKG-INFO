@@ -1,3 +1,31 @@
+Metadata-Version: 2.4
+Name: forge-studios
+Version: 0.1.0
+Summary: Open production runtime for synthetic, physical, and hybrid AgenticForge episodes.
+Requires-Python: >=3.11
+Description-Content-Type: text/markdown
+Requires-Dist: pydantic>=2.7
+Requires-Dist: platformdirs>=4.2
+Requires-Dist: pyyaml>=6.0
+Provides-Extra: fal
+Requires-Dist: fal-client>=0.7; extra == "fal"
+Provides-Extra: timeline
+Requires-Dist: opentimelineio>=0.17; extra == "timeline"
+Provides-Extra: visual
+Requires-Dist: opencv-python-headless>=4.10; extra == "visual"
+Requires-Dist: numpy>=1.26; extra == "visual"
+Provides-Extra: secrets
+Requires-Dist: keyring>=25; extra == "secrets"
+Provides-Extra: dev
+Requires-Dist: pytest>=8; extra == "dev"
+Requires-Dist: ruff>=0.6; extra == "dev"
+Provides-Extra: full
+Requires-Dist: fal-client>=0.7; extra == "full"
+Requires-Dist: opentimelineio>=0.17; extra == "full"
+Requires-Dist: opencv-python-headless>=4.10; extra == "full"
+Requires-Dist: numpy>=1.26; extra == "full"
+Requires-Dist: keyring>=25; extra == "full"
+
 # Forge Studios
 
 Open execution runtime for AgenticForge productions. Forge Studios consumes the

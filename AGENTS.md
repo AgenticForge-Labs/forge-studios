@@ -1,6 +1,8 @@
 # Agent / Codex instructions
 
-Forge Studios executes `episode_package_v1`. It owns Director, Animator, production asset/provenance handling, and Filmmaker. It does **not** invent world canon or silently rewrite story intent.
+Forge Studios executes `episode_package_v2`. It owns Director, Animator,
+production asset/provenance handling, and Filmmaker. It does **not** select an
+LLM, invent world canon, or silently rewrite story/prompt intent.
 
 Manual and autonomous production must call the same functions. Do not create a parallel agent-only implementation.
 
@@ -15,8 +17,7 @@ Work **one shot and one primitive at a time**:
 ```text
 inspect shot
 → inspect/bind canonical references
-→ edit role-specific prompt if needed
-→ set frame plan if needed
+→ edit a start/end/video prompt if needed
 → generate candidate
 → review
 → approve/reject with structured feedback
@@ -28,13 +29,12 @@ Rules:
 - Start with `forge-studios plan` and `show-shot`; do not regenerate the whole episode by default.
 - Preserve package order as the master narrative order.
 - Register stable semantic asset IDs and bind them to shots; do not treat filenames/provider URLs as identity.
-- Generate storyboard/still candidates before expensive video whenever possible.
-- For `start_only`, `start_and_end`, or `chained_start`, resolve/approve the required boundary stills before video.
+- Generate the actual start/end boundary candidates before expensive video.
+- Resolve and approve both required boundary images before video.
 - Keep candidate history. Regeneration appends a new attempt/asset rather than overwriting prior attempts.
 - Require explicit human approval for candidates by default.
 - Capture review notes/tags/scores whenever they are useful (`anatomy`, `scale`, `continuity`, `architecture`, `composition`, `motion`, etc.).
 - Do not run paid video generation merely to test plumbing if the mock provider is sufficient.
-- Do not trigger physical hardware unless the user explicitly requests the physical action and Forge Puppeteer safety/calibration permits it.
 - Every new manual operation that proves useful should become a plain reusable function + CLI command + test before agent orchestration is added.
 
 ### Agentic mode
@@ -46,8 +46,7 @@ Rules:
 - Conservative defaults are intentional. Director should stop at review/permission boundaries unless policy grants authority.
 - Auto-generation and auto-approval are separate permissions.
 - Expensive generated video requires `allow_generated_video`/CLI `--allow-video`.
-- Physical execution requires `allow_physical_execution`/CLI `--allow-physical` plus an available Puppeteer backend.
-- Storyboard, frame, clip, and take approvals are separate policy switches.
+- Frame and clip approvals are separate policy switches.
 - Bound action counts/retries. Never allow an unbounded generate/reject/regenerate loop.
 - Provider retry/fallback, queue handling, media download, format normalization, and deterministic assembly may be automated.
 - Creative rewriting, changing a beat, changing the intended final composition, inventing missing canon, or contradicting locked references must be escalated to the human/Forge Worlds.
@@ -63,7 +62,7 @@ Execution may later be parallelized or reordered for dependencies/cost, but Film
 
 ## Animator rules
 
-- Animator owns synthetic-media acquisition: storyboard stills, exact start/end frames, generated clips, compositing source assets, and boundary extraction.
+- Animator owns synthetic-media acquisition: exact start/end frames, generated clips, compositing source assets, and boundary extraction.
 - Provider-specific request fields belong in adapters.
 - Local reference files may be uploaded by the provider adapter at execution time; the package may retain storage-neutral/local URIs.
 - Persist generation attempt ID, prompt, references, provider/model/options, source assets, latency, errors, and outputs.
@@ -76,9 +75,11 @@ Execution may later be parallelized or reordered for dependencies/cost, but Film
 - Preserve trim, transition, still-motion, audio/music/title/caption/compositing provenance.
 - Prefer a simple deterministic backend before adding model-driven editorial decisions.
 
-## Physical boundary
+## Current media boundary
 
-Forge Studios calls Forge Puppeteer through a semantic contract/command/service. Do not import robot SDKs, camera SDK internals, servo coordinates, or hardware calibration logic into Studios.
+The current v2 contract is generated-video only. Future still or physical
+extensions must be versioned explicitly and must not leak route selection back
+into the creative LLM context.
 
 ## Telemetry and Researcher boundary
 

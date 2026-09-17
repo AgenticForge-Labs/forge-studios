@@ -6,13 +6,12 @@ from .telemetry import TelemetrySink
 
 def resolve_final_media(package: EpisodePackage) -> list[dict]:
     timeline=[]; t=0.0
-    for scene in package.scenes:
-        for shot in scene.shots:
-            chosen=shot.final_clip_asset_id or shot.approved_clip_asset_id or shot.approved_take_id or shot.approved_storyboard_asset_id or shot.approved_start_frame_asset_id
-            if not chosen: raise ValueError(f'shot {shot.shot_id} has no approved media')
-            asset=package.find_asset(chosen)
-            timeline.append({'shot_id':shot.shot_id,'asset_id':chosen,'uri':asset.uri,'kind':asset.kind,'start_seconds':t,'duration_seconds':shot.duration_seconds,'edit_intent':shot.edit_intent})
-            t += shot.duration_seconds
+    for shot in package.shots:
+        chosen=shot.final_clip_asset_id or shot.approved_clip_asset_id or shot.approved_start_frame_asset_id
+        if not chosen: raise ValueError(f'shot {shot.shot_id} has no approved media')
+        asset=package.find_asset(chosen)
+        timeline.append({'shot_id':shot.shot_id,'asset_id':chosen,'uri':asset.uri,'kind':asset.kind,'start_seconds':t,'duration_seconds':shot.duration_seconds,'edit_intent':shot.edit_intent})
+        t += shot.duration_seconds
     return timeline
 
 def write_edit_plan(package: EpisodePackage, path: str|Path) -> Path:

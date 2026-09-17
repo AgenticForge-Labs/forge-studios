@@ -16,7 +16,7 @@ def generate_storyboard_candidates(package: EpisodePackage, animator, *, skip_ex
     production storyboard is never assembled from these legacy planning stills.
     """
     generated = []
-    shots = [shot for scene in package.scenes for shot in scene.shots]
+    shots = package.shots
     total = len(shots)
     for index, shot in enumerate(shots, 1):
         if skip_existing and (shot.storyboard_asset_ids or shot.approved_storyboard_asset_id):
@@ -104,12 +104,12 @@ def generate_boundary_candidates(
     candidate so a human can review the complete pair before either is approved.
     """
     generated = []
-    shots = [shot for scene in package.scenes for shot in scene.shots]
+    shots = package.shots
     total = len(shots)
     for index, shot in enumerate(shots, 1):
-        if shot.render_strategy not in {'generated_video', 'hybrid'}:
+        if shot.render_strategy != 'generated_video':
             raise ValueError(
-                f'Shot {shot.shot_id!r} is {shot.render_strategy!r}; boundary-only production expects generated_video/hybrid final shots.'
+                f'Shot {shot.shot_id!r} is {shot.render_strategy!r}; boundary-only production expects generated_video final shots.'
             )
         if shot.frame_plan.mode != 'start_and_end':
             raise ValueError(f'Shot {shot.shot_id!r} must use frame_plan.mode=start_and_end for boundary storyboard generation.')
@@ -213,23 +213,14 @@ def build_storyboard(package: EpisodePackage, path: str | Path) -> Path:
     out = Path(path)
     guide_path = out.with_name(f'{out.stem}.image-guide{out.suffix or ".html"}')
     cards = []
-    for scene in package.scenes:
-        cards.append(f'<h2>{html.escape(scene.scene_id)} — {html.escape(scene.summary)}</h2>')
-        for shot in scene.shots:
-            if shot.render_strategy not in {'generated_video', 'hybrid'}:
-                visual = '<div class="missing">Unsupported final-shot strategy for boundary storyboard</div>'
-                motion = ''
-            else:
-                visual = '<div class="frame-grid">' + _frame_panel(package, shot, 'start_frame', shot.start_frame_prompt) + _frame_panel(package, shot, 'end_frame', shot.end_frame_prompt) + '</div>'
-                motion = f'<h4>VIDEO MOTION / PERFORMANCE PROMPT</h4><pre class="video-prompt">{html.escape(shot.video_prompt or "(no video prompt)")}</pre>'
-            cards.append(f'''<article>
+    for shot in package.shots:
+        visual = '<div class="frame-grid">' + _frame_panel(package, shot, 'start_frame', shot.start_frame_prompt) + _frame_panel(package, shot, 'end_frame', shot.end_frame_prompt) + '</div>'
+        motion = f'<h4>VIDEO MOTION / PERFORMANCE PROMPT</h4><pre class="video-prompt">{html.escape(shot.video_prompt or "(no video prompt)")}</pre>'
+        cards.append(f'''<article>
 <h3>{html.escape(shot.shot_id)} · {shot.duration_seconds:g}s</h3>
 {visual}
 {motion}
-<p><b>Purpose:</b> {html.escape(shot.purpose)}</p>
-<p><b>Shot description:</b> {html.escape(shot.visual)}</p>
-<p class="planning-note"><b>Route:</b> {html.escape(shot.execution_route)} / {html.escape(shot.render_strategy)} · <b>Frames:</b> {html.escape(shot.frame_plan.mode)} · <b>Status:</b> {html.escape(shot.status)}</p>
-<p class="planning-note"><b>Beats:</b> {html.escape(', '.join(shot.source_beat_ids))}</p>
+<p class="planning-note"><b>Beat:</b> {html.escape(shot.beat_id)} · <b>Site:</b> {html.escape(shot.site_id)} · <b>Status:</b> {html.escape(shot.status)}</p>
 </article>''')
     doc = f'''<!doctype html><meta charset="utf-8"><title>{html.escape(package.title)} production storyboard</title>
 <style>{_storyboard_styles()}</style>
@@ -300,15 +291,14 @@ def build_image_guide(package: EpisodePackage, path: str | Path, *, storyboard_n
     """Show how each boundary/reusable image was made: inputs + prompt -> output."""
     cards = []
     seen: set[str] = set()
-    for scene in package.scenes:
-        for shot in scene.shots:
-            for role, asset_id, fallback in _guide_role_assets(shot):
-                if asset_id in seen:
-                    continue
-                seen.add(asset_id)
-                card = _guide_card(package, title=f'{shot.shot_id} — {role}', asset_id=asset_id, fallback=fallback)
-                if card:
-                    cards.append(card)
+    for shot in package.shots:
+        for role, asset_id, fallback in _guide_role_assets(shot):
+            if asset_id in seen:
+                continue
+            seen.add(asset_id)
+            card = _guide_card(package, title=f'{shot.shot_id} — {role}', asset_id=asset_id, fallback=fallback)
+            if card:
+                cards.append(card)
     for asset in package.assets:
         if asset.asset_id in seen:
             continue
