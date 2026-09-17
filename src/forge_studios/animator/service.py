@@ -19,11 +19,7 @@ def boundary_camera(shot, role: str) -> dict:
     if role in {'start_frame','end_frame'}:
         camera.pop('movement', None)
         if isinstance(specific, dict):
-            # Endpoint objects are complete static intent, not additions to a
-            # possibly contradictory shot-wide tracking composition.
             return {**({'viewpoint': camera['viewpoint']} if 'viewpoint' in camera else {}), **specific}
-        # Legacy prompts already carry the boundary composition. Repeating the
-        # temporal shot composition here can turn a grounded pose into a jump.
         return {key: value for key, value in camera.items() if key in {'viewpoint','axis'}}
     return camera
 
@@ -62,7 +58,7 @@ def storyboard_fallback_prompt(shot) -> str:
     blocking=shot.performance_intent.get('blocking') or []
     if not isinstance(blocking,list): blocking=[]
     state=(ending.strip() if isinstance(ending,str) and ending.strip()
-           else blocking[-1] if blocking else shot.image_prompt or shot.visual)
+           else blocking[-1] if blocking else shot.start_frame_prompt or shot.image_prompt or shot.visual)
     camera=_camera_summary(shot)
     parts=[
         'Create one representative planning still, not a collage or motion-blurred sequence.',
@@ -80,17 +76,13 @@ def assert_generation_preflight(package: EpisodePackage) -> None:
         raise ValueError('EpisodePackage has hard production-preflight errors; fix and revalidate it before media generation.')
     issues=validate_frame_plans(package)
     if issues:
-        issue=issues[0]
-        raise FramePlanError(issue)
+        raise FramePlanError(issues[0])
 
 
 def reference_isolation_plan(reference_asset_ids: list[str]) -> dict:
-    ids=list(dict.fromkeys(reference_asset_ids))
-    steps=[]
-    for asset_id in ids:
-        steps.append({'phase':'single_reference','reference_asset_ids':[asset_id]})
-    for left,right in combinations(ids,2):
-        steps.append({'phase':'pairwise_reference','reference_asset_ids':[left,right]})
+    ids=list(dict.fromkeys(reference_asset_ids)); steps=[]
+    for asset_id in ids: steps.append({'phase':'single_reference','reference_asset_ids':[asset_id]})
+    for left,right in combinations(ids,2): steps.append({'phase':'pairwise_reference','reference_asset_ids':[left,right]})
     return {'strategy':'single_then_pairwise','original_reference_asset_ids':ids,'steps':steps,'next_isolation_step':steps[0] if steps else None}
 
 
@@ -131,7 +123,7 @@ def _validate_continuity_references(package: EpisodePackage, shot) -> list[Asset
         try: asset=package.find_asset(asset_id)
         except KeyError as exc: raise ValueError(f'Shot {shot.shot_id!r} continuity reference {asset_id!r} is not present in the package.') from exc
         if asset.kind!='reference_image':
-            raise ValueError(f'Shot {shot.shot_id!r} continuity_asset_ids may contain only reusable reference_image assets; {asset_id!r} is {asset.kind!r}. Use approved_storyboard_asset_id for legacy composition guides and frame-plan/approved start/end fields for boundary images.')
+            raise ValueError(f'Shot {shot.shot_id!r} continuity_asset_ids may contain only reusable reference_image assets; {asset_id!r} is {asset.kind!r}.')
         if asset.status not in {'canon','approved'}:
             raise ValueError(f'Shot {shot.shot_id!r} continuity reference {asset_id!r} has status {asset.status!r}; only canon or human-approved reusable references may be sent to a provider.')
         assets.append(asset)
@@ -143,10 +135,10 @@ def _reference_input(package: EpisodePackage, shot, asset_id: str, *, start_id: 
         return {'asset_id':asset_id,'production_role':'storyboard_composition','use':'approved planning/composition guide; use layout only, while reusable identity/site references remain design authority'}
     if start_id and asset_id == start_id:
         inherited=bool(shot.frame_plan.chain_from_shot_id)
-        return {'asset_id':asset_id,'production_role':'approved_predecessor_endpoint' if inherited else 'approved_start_frame','use':'boundary continuity evidence for identity, geometry, lighting, props and scale; follow the authored destination state and camera, not the source pose or crop'}
+        return {'asset_id':asset_id,'production_role':'approved_predecessor_endpoint' if inherited else 'approved_start_frame','use':'visual start anchor for identity, geometry, lighting, props and scale; preserve this starting composition while following the authored temporal prompt'}
     asset=package.find_asset(asset_id); production_role=_continuity_role(asset) if asset.kind=='reference_image' else f'production_{asset.kind}'; role_suffix=f' ({asset.role})' if asset.role else ''
     uses={
-        'canonical_identity':'identity, anatomy, proportions, materials, colors, costume and distinctive design of the authored visible parts only; do not add a face/full body or copy source pose/camera merely because the reference shows them',
+        'canonical_identity':'identity, anatomy, proportions, materials, colors, costume and distinctive design of the authored visible parts only; do not copy source pose/camera merely because the reference shows them',
         'reusable_character_pose':'approved prior character pose/view useful for continuity; preserve identity but follow current blocking and camera',
         'canonical_site_geometry':'site architecture, geometry, materials, scale and spatial relationships; compose only a view consistent with this geometry',
         'reusable_site_view':'approved prior site view useful for continuity; preserve established geometry and current camera-axis relationships',
@@ -168,7 +160,7 @@ def _boundary_inputs(shot, *, start_id: str|None, end_id: str|None) -> list[dict
 
 
 def structured_image_prompt(package: EpisodePackage, shot, role: str, instruction: str, reference_ids: list[str], *, start_id: str|None=None) -> str:
-    """Compile provider input from already-safe production fields, never raw story prose."""
+    """Compile provider input from already-authored production fields, never raw story prose."""
     allow_text=bool((shot.provider_options or {}).get('allow_text'))
     output=('one clean 16:9 frame; no collage, borders, or motion blur' if allow_text else 'one clean 16:9 frame; no collage, labels, captions, subtitles, speech bubbles, readable text, letters, numbers, logos, watermarks, UI, borders, or motion blur')
     payload={
@@ -196,12 +188,23 @@ def _provider_model_for_request(provider, request: MediaRequest, role: str):
 
 
 def _require_approved_video_boundaries(package: EpisodePackage, shot) -> None:
-    if shot.frame_plan.mode!='start_and_end': return
-    if not shot.approved_start_frame_asset_id or not shot.approved_end_frame_asset_id:
-        raise ValueError(f'Shot {shot.shot_id!r} needs human-approved start and end boundary frames before video generation.')
-    start=package.find_asset(shot.approved_start_frame_asset_id); end=package.find_asset(shot.approved_end_frame_asset_id)
-    if start.kind not in {'start_frame','end_frame'}: raise ValueError(f'Shot {shot.shot_id!r} approved start boundary is {start.kind!r}, not a generated boundary frame.')
-    if end.kind!='end_frame': raise ValueError(f'Shot {shot.shot_id!r} approved end boundary is {end.kind!r}, not an end_frame.')
+    if not shot.approved_start_frame_asset_id:
+        raise ValueError(f'Shot {shot.shot_id!r} needs a human-approved start frame before video generation.')
+    start=package.find_asset(shot.approved_start_frame_asset_id)
+    if start.kind!='start_frame':
+        raise ValueError(f'Shot {shot.shot_id!r} approved start boundary is {start.kind!r}, not a start_frame.')
+    if shot.frame_plan.mode=='start_only':
+        return
+    if shot.frame_plan.mode=='start_and_end':
+        if not shot.approved_end_frame_asset_id:
+            raise ValueError(f'Shot {shot.shot_id!r} uses start_and_end and needs an approved end frame before video generation.')
+        end=package.find_asset(shot.approved_end_frame_asset_id)
+        if end.kind!='end_frame':
+            raise ValueError(f'Shot {shot.shot_id!r} approved end boundary is {end.kind!r}, not an end_frame.')
+        return
+    if shot.frame_plan.mode=='chained_start':
+        return
+    raise ValueError(f'unsupported frame plan mode {shot.frame_plan.mode!r}')
 
 
 class AnimatorService:
@@ -210,6 +213,8 @@ class AnimatorService:
         assert_generation_preflight(package); shot=package.find_shot(shot_id)
         if role not in ROLE_KIND: raise ValueError(f'unknown generation role {role!r}')
         if role=='video' and shot.render_strategy != 'generated_video': raise ValueError('shot is not configured for generated video')
+        if role=='end_frame' and shot.frame_plan.mode=='start_only':
+            raise ValueError(f'Shot {shot_id!r} uses start_only; no end frame is requested for this production unit.')
         if role!='storyboard':
             issues=validate_frame_plans(package,shot_id=shot_id)
             if issues: raise FramePlanError(issues[0])
@@ -239,13 +244,10 @@ class AnimatorService:
             if storyboard_id not in reference_ids:
                 reference_ids.append(storyboard_id)
                 prompt += f"\n\nReference image {len(reference_ids)} is this shot's approved storyboard. Keep its composition and spatial layout; reusable identity/site references still fix design."
-        if role=='end_frame' and shot.frame_plan.mode=='start_and_end' and not shot.approved_start_frame_asset_id:
+        if role=='end_frame' and not shot.approved_start_frame_asset_id:
             raise ValueError(f'Shot {shot_id!r} needs an approved start frame before generating its end frame.')
         if role=='end_frame' and start_id and start_id not in reference_ids:
             reference_ids.append(start_id)
-        # Image requests already carry structured camera, constraints and
-        # reference roles. Duplicating them in instruction can overpower the
-        # unique endpoint state. Video retains its temporal grounding suffix.
         if role == 'video':
             prompt += production_prompt_suffix(shot,role)
         reference_inputs=_reference_inputs(package,shot,reference_ids,start_id=start_id); boundary_inputs=_boundary_inputs(shot,start_id=start_id,end_id=end_id)
@@ -283,7 +285,7 @@ class AnimatorService:
     @staticmethod
     def _default_prompt(shot, role: str) -> str:
         camera='Camera: '+json.dumps(shot.camera,ensure_ascii=False) if shot.camera else ''; constraints='Visual constraints: '+json.dumps(shot.visual_constraints,ensure_ascii=False) if shot.visual_constraints else ''; parts=[value for value in (camera,constraints) if value]
-        if role=='video': parts.append('Describe only temporal change and preserve supplied start/end frames and reusable design references.')
+        if role=='video': parts.append('Describe the temporal performance from the approved start frame; preserve an approved end frame only when one is explicitly supplied.')
         elif role=='start_frame': parts.append('Create the exact settled starting composition for the shot from the structured production constraints and references.')
         elif role=='end_frame': parts.append('Create the exact settled destination composition for the shot from the structured production constraints and references.')
         else: parts.append('Create the requested production planning image from structured references and constraints.')
