@@ -10,11 +10,7 @@ from .providers.base import MediaRequest
 
 
 def generate_storyboard_candidates(package: EpisodePackage, animator, *, skip_existing: bool = True, on_shot_complete=None, progress: Callable[[str], None] | None = None):
-    """Legacy planning-still generator retained only for old packages/tests.
-
-    New production runs should call ``generate_boundary_candidates``. The human
-    production storyboard is never assembled from these legacy planning stills.
-    """
+    """Legacy planning-still generator retained only for old callers/tests."""
     generated = []
     shots = package.shots
     total = len(shots)
@@ -58,13 +54,7 @@ def _localize_existing(package: EpisodePackage, animator, shot, role: str) -> No
 
 
 def _candidate_pair_context(package: EpisodePackage, shot, start_id: str):
-    """Temporarily make a candidate start usable to generate its paired end.
-
-    AnimatorService intentionally requires approved boundary state. For human
-    storyboard generation we need to create the start/end candidate pair before a
-    reviewer can approve it. This context temporarily satisfies that dependency,
-    then restores the package so no human approval is faked or persisted.
-    """
+    """Temporarily make a candidate start usable while creating an optional end."""
     class _Context:
         def __enter__(self_inner):
             self_inner.original_start = shot.approved_start_frame_asset_id
@@ -97,11 +87,11 @@ def generate_boundary_candidates(
     on_frame_complete=None,
     progress: Callable[[str], None] | None = None,
 ):
-    """Generate the actual candidate START/END frames used for video production.
+    """Generate the actual frame candidates requested by each v3 shot.
 
-    No representative storyboard image is generated. Continuous successors reuse
-    the exact predecessor end candidate. End frames are generated from the start
-    candidate so a human can review the complete pair before either is approved.
+    `start_only` generates only the visual start anchor. `start_and_end` additionally
+    generates the authored destination frame. The current Forge Born workflow uses
+    independent start-only beats; endpoint chaining remains a future/optional mode.
     """
     generated = []
     shots = package.shots
@@ -109,13 +99,15 @@ def generate_boundary_candidates(
     for index, shot in enumerate(shots, 1):
         if shot.render_strategy != 'generated_video':
             raise ValueError(
-                f'Shot {shot.shot_id!r} is {shot.render_strategy!r}; boundary-only production expects generated_video final shots.'
+                f'Shot {shot.shot_id!r} is {shot.render_strategy!r}; this production path expects generated_video.'
             )
-        if shot.frame_plan.mode != 'start_and_end':
-            raise ValueError(f'Shot {shot.shot_id!r} must use frame_plan.mode=start_and_end for boundary storyboard generation.')
+        if shot.frame_plan.mode not in {'start_only', 'start_and_end'}:
+            raise ValueError(
+                f'Shot {shot.shot_id!r} uses unsupported frame plan {shot.frame_plan.mode!r} for frame candidate generation.'
+            )
 
         if progress:
-            progress(f'[boundaries] {index}/{total} {shot.shot_id}: preparing candidate pair')
+            progress(f'[frames] {index}/{total} {shot.shot_id}: preparing {shot.frame_plan.mode}')
 
         if shot.frame_plan.chain_from_shot_id:
             previous = predecessor_for(package, shot)
@@ -127,7 +119,7 @@ def generate_boundary_candidates(
             if start_id not in shot.start_frame_asset_ids:
                 shot.start_frame_asset_ids.append(start_id)
             if progress:
-                progress(f'[boundaries] {shot.shot_id}: reusing {previous.shot_id} end candidate as exact start')
+                progress(f'[frames] {shot.shot_id}: reusing {previous.shot_id} end candidate as exact start')
         else:
             start_id = _latest_boundary_id(shot, 'start_frame')
             if not (skip_existing and start_id):
@@ -137,28 +129,30 @@ def generate_boundary_candidates(
                 if on_frame_complete:
                     on_frame_complete(package, shot, 'start_frame', assets)
                 if progress:
-                    progress(f'[boundaries] {shot.shot_id}: generated start candidate {start_id}')
+                    progress(f'[frames] {shot.shot_id}: generated start candidate {start_id}')
             else:
                 _localize_existing(package, animator, shot, 'start_frame')
 
         if not start_id:
             raise ValueError(f'Shot {shot.shot_id!r} has no start-frame candidate.')
 
-        end_id = _latest_boundary_id(shot, 'end_frame')
-        if not (skip_existing and end_id):
-            with _candidate_pair_context(package, shot, start_id):
-                assets = animator.generate(package, shot.shot_id, role='end_frame')
-            generated.extend(assets)
-            end_id = assets[-1].asset_id
-            if on_frame_complete:
-                on_frame_complete(package, shot, 'end_frame', assets)
-            if progress:
-                progress(f'[boundaries] {shot.shot_id}: generated end candidate {end_id}')
-        else:
-            _localize_existing(package, animator, shot, 'end_frame')
+        if shot.frame_plan.mode == 'start_and_end':
+            end_id = _latest_boundary_id(shot, 'end_frame')
+            if not (skip_existing and end_id):
+                with _candidate_pair_context(package, shot, start_id):
+                    assets = animator.generate(package, shot.shot_id, role='end_frame')
+                generated.extend(assets)
+                end_id = assets[-1].asset_id
+                if on_frame_complete:
+                    on_frame_complete(package, shot, 'end_frame', assets)
+                if progress:
+                    progress(f'[frames] {shot.shot_id}: generated optional end candidate {end_id}')
+            else:
+                _localize_existing(package, animator, shot, 'end_frame')
 
         if progress:
-            progress(f'[boundaries] {index}/{total} {shot.shot_id}: pair ready for human review')
+            label = 'start ready' if shot.frame_plan.mode == 'start_only' else 'start/end pair ready'
+            progress(f'[frames] {index}/{total} {shot.shot_id}: {label} for human review')
     return generated
 
 
@@ -186,7 +180,7 @@ def _frame_panel(package: EpisodePackage, shot, role: str, prompt: str | None) -
     label = 'START FRAME' if role == 'start_frame' else 'END FRAME'
     inherited = ''
     if role == 'start_frame' and shot.frame_plan.chain_from_shot_id:
-        inherited = f'<div class="handoff">↳ inherited from {html.escape(shot.frame_plan.chain_from_shot_id)} end frame (exact handoff)</div>'
+        inherited = f'<div class="handoff">↳ inherited from {html.escape(shot.frame_plan.chain_from_shot_id)} end frame</div>'
     asset_label = f'<code>{html.escape(asset_id)}</code>' if asset_id else '<span class="muted">pending</span>'
     return f'''<section class="frame-panel">
 <div class="frame-heading"><b>{label}</b>{inherited}</div>
@@ -200,24 +194,26 @@ def _storyboard_styles() -> str:
     return '''
 body{font:16px system-ui;max-width:1280px;margin:2rem auto;padding:0 1rem;background:#f7f7f5;color:#161616}
 a{color:inherit}article{background:white;border:1px solid #bbb;border-radius:14px;padding:1rem;margin:1.2rem 0;box-shadow:0 2px 8px #0000000a}
-.frame-grid{display:grid;grid-template-columns:1fr 1fr;gap:1rem}.frame-panel{min-width:0}.frame-heading{display:flex;gap:.7rem;align-items:center;margin:.2rem 0 .5rem}.handoff{font-size:.82rem;color:#5d5d5d}
+.frame-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:1rem}.frame-panel{min-width:0}.frame-heading{display:flex;gap:.7rem;align-items:center;margin:.2rem 0 .5rem}.handoff{font-size:.82rem;color:#5d5d5d}
 img{display:block;width:100%;max-height:500px;object-fit:contain;background:#eee;border-radius:8px}.missing{height:260px;display:grid;place-items:center;border:2px dashed #bbb;border-radius:8px;color:#777;background:#fafafa}
 pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f4f4f4;border-radius:8px;padding:.75rem;font:13px ui-monospace,SFMono-Regular,Menlo,monospace}.video-prompt{background:#111;color:#f5f5f5}
 .asset-id{font-size:.78rem;color:#666;margin-top:.4rem}.muted{color:#888}.explain{padding:.9rem 1rem;border-left:4px solid #777;background:white}.planning-note{font-size:.9rem;color:#555}
-@media(max-width:760px){.frame-grid{grid-template-columns:1fr}}
 '''
 
 
 def build_storyboard(package: EpisodePackage, path: str | Path) -> Path:
-    """Render the human production storyboard from movie boundary frames only."""
+    """Render the human production storyboard from the actual requested frame anchors."""
     out = Path(path)
     guide_path = out.with_name(f'{out.stem}.image-guide{out.suffix or ".html"}')
     cards = []
     for shot in package.shots:
-        visual = '<div class="frame-grid">' + _frame_panel(package, shot, 'start_frame', shot.start_frame_prompt) + _frame_panel(package, shot, 'end_frame', shot.end_frame_prompt) + '</div>'
+        panels = [_frame_panel(package, shot, 'start_frame', shot.start_frame_prompt)]
+        if shot.frame_plan.mode == 'start_and_end':
+            panels.append(_frame_panel(package, shot, 'end_frame', shot.end_frame_prompt))
+        visual = '<div class="frame-grid">' + ''.join(panels) + '</div>'
         motion = f'<h4>VIDEO MOTION / PERFORMANCE PROMPT</h4><pre class="video-prompt">{html.escape(shot.video_prompt or "(no video prompt)")}</pre>'
         cards.append(f'''<article>
-<h3>{html.escape(shot.shot_id)} · {shot.duration_seconds:g}s</h3>
+<h3>{html.escape(shot.shot_id)} · {shot.duration_seconds:g}s · {html.escape(shot.frame_plan.mode)}</h3>
 {visual}
 {motion}
 <p class="planning-note"><b>Beat:</b> {html.escape(shot.beat_id)} · <b>Site:</b> {html.escape(shot.site_id)} · <b>Status:</b> {html.escape(shot.status)}</p>
@@ -226,7 +222,7 @@ def build_storyboard(package: EpisodePackage, path: str | Path) -> Path:
 <style>{_storyboard_styles()}</style>
 <h1>{html.escape(package.title)} — Production Storyboard</h1>
 <p>{html.escape(package.premise)}</p>
-<div class="explain"><b>This is the final human pre-movie review artifact.</b> Each unit shows the exact boundary images supplied to the model: the actual candidate/approved START and END frames plus the prose motion/performance prompt that will be passed to video generation. There are no separate storyboard stills. A continuous successor reuses the previous end frame exactly. <a href="{html.escape(guide_path.name)}">Open the image-generation guide →</a></div>
+<div class="explain"><b>This is the final human pre-video review artifact.</b> Start-only units show the actual START frame anchor plus the complete video prompt. An END frame appears only for a unit explicitly authored as start_and_end. <a href="{html.escape(guide_path.name)}">Open the image-generation guide →</a></div>
 {''.join(cards)}'''
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(doc)
@@ -288,7 +284,7 @@ def _guide_card(package: EpisodePackage, *, title: str, asset_id: str, fallback:
 
 
 def build_image_guide(package: EpisodePackage, path: str | Path, *, storyboard_name: str | None = None) -> Path:
-    """Show how each boundary/reusable image was made: inputs + prompt -> output."""
+    """Show how each generated frame/reference image was made: inputs + prompt -> output."""
     cards = []
     seen: set[str] = set()
     for shot in package.shots:
@@ -311,8 +307,8 @@ def build_image_guide(package: EpisodePackage, path: str | Path, *, storyboard_n
     doc = f'''<!doctype html><meta charset="utf-8"><title>{html.escape(package.title)} image guide</title>
 <style>{_storyboard_styles()}.inputs{{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:.7rem}}.input{{background:#fff;border:1px solid #ccc;border-radius:8px;padding:.5rem}}.input code{{display:block;font-size:.72rem;color:#666;margin:.2rem 0}}.input img{{height:180px;object-fit:contain}}.output{{max-width:850px;margin-top:1rem}}.equation{{padding:.6rem;background:#eef;border-radius:6px;margin:.4rem 0}}</style>
 <h1>{html.escape(package.title)} — Image Generation Guide</h1>
-<div class="explain">This page is the human-readable image-production trace. For every generated boundary or reusable reference image it shows the ordered image inputs, the exact provider prompt, and the resulting output. Separate representative storyboard stills are intentionally excluded.</div>
-{back}{''.join(cards) if cards else '<p>No generated boundary/reference images are recorded yet.</p>'}'''
+<div class="explain">For every generated start frame, optional end frame, or reusable reference image, this page shows the ordered image inputs, exact provider prompt, and resulting output.</div>
+{back}{''.join(cards) if cards else '<p>No generated frame/reference images are recorded yet.</p>'}'''
     out = Path(path)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(doc)
