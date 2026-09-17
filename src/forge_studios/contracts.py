@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class FramePlan(BaseModel):
-    """Internal Studios boundary state compiled from the public v3 package."""
+    """Internal Studios boundary state compiled from the public package."""
 
     model_config = ConfigDict(extra="forbid")
     mode: Literal["start_only", "start_and_end", "chained_start"] = "start_only"
@@ -29,7 +29,7 @@ class Shot(BaseModel):
     character_ids: list[str] = Field(default_factory=list)
     visible_entity_ids: list[str] = Field(default_factory=list)
     reference_asset_ids: list[str] = Field(default_factory=list)
-    frame_plan_mode: Literal["start_only", "start_and_end"] = "start_only"
+    frame_plan_mode: Literal["start_only", "start_and_end"] | None = None
     inherits_start_from_shot_id: str | None = None
     start_frame_prompt: str
     video_prompt: str
@@ -66,6 +66,10 @@ class Shot(BaseModel):
 
     @model_validator(mode="after")
     def compile_internal_video_state(self) -> Shot:
+        mode = self.frame_plan_mode or (
+            "start_and_end" if (self.end_frame_prompt or "").strip() else "start_only"
+        )
+        self.frame_plan_mode = mode
         self.source_beat_ids = [self.beat_id]
         self.visual = self.end_frame_prompt or self.start_frame_prompt
         self.entity_ids = list(dict.fromkeys([
@@ -74,17 +78,17 @@ class Shot(BaseModel):
             self.site_id,
         ]))
         self.continuity_asset_ids = list(self.reference_asset_ids)
-        self.frame_plan.mode = self.frame_plan_mode
+        self.frame_plan.mode = mode
         self.frame_plan.chain_from_shot_id = self.inherits_start_from_shot_id
         self.edit_intent = {
             "transition_mode": "inherit_endpoint" if self.inherits_start_from_shot_id else "new_composition"
         }
-        if self.frame_plan_mode == "start_and_end" and not (self.end_frame_prompt or "").strip():
+        if mode == "start_and_end" and not (self.end_frame_prompt or "").strip():
             raise ValueError("start_and_end shot requires end_frame_prompt")
-        if self.frame_plan_mode == "start_only" and self.end_frame_prompt is not None:
+        if mode == "start_only" and self.end_frame_prompt is not None:
             raise ValueError("start_only shot must not carry end_frame_prompt")
-        if self.frame_plan_mode == "start_only" and self.inherits_start_from_shot_id:
-            raise ValueError("current start_only v3 shots are independent and cannot inherit endpoints")
+        if mode == "start_only" and self.inherits_start_from_shot_id:
+            raise ValueError("start_only shots are independent and cannot inherit endpoints")
         return self
 
 
@@ -115,7 +119,7 @@ class AssetRecord(BaseModel):
 class EpisodePackage(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    package_version: Literal["episode_package_v3"] = "episode_package_v3"
+    package_version: Literal["episode_package_v2", "episode_package_v3"]
     production_id: str
     episode_id: str
     revision: int = 1
