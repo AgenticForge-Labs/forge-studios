@@ -85,3 +85,20 @@ def test_reference_uses_are_public_and_override_catalog_default_for_provider():
     )
     assert reference["use"].startswith("Supporting site reference only")
     assert "primary scene composition" in reference["use"]
+
+
+def test_reference_uses_must_target_bound_reference_assets():
+    import pytest
+
+    value = package()
+    with pytest.raises(ValueError, match="reference_uses names assets"):
+        value.shots[0].__class__(
+            shot_id="bad",
+            beat_id="one",
+            duration_seconds=20,
+            site_id="place",
+            reference_asset_ids=["ref"],
+            reference_uses={"not_bound": "supporting landmark"},
+            start_frame_prompt="A settled frame.",
+            video_prompt="A short action.",
+        )
