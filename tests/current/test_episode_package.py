@@ -53,7 +53,7 @@ def test_visual_constraints_are_part_of_the_public_handoff():
         "must_not_show": ["arch", "glowing rune grooves"],
     }
 
-    payload = value.model_dump(mode="json", exclude_none=True, exclude_defaults=True)
+    payload = value.model_dump(mode="json", exclude_none=True)
 
     assert payload["package_version"] == "episode_package"
     assert payload["shots"][0]["visual_constraints"]["must_show"] == ["raised circular altar"]
