@@ -1,6 +1,6 @@
 # Agent / Codex instructions
 
-Forge Studios executes `episode_package_v2`. It owns Director, Animator,
+Forge Studios executes the current unversioned `EpisodePackage` contract. It owns Director, Animator,
 production asset/provenance handling, and Filmmaker. It does **not** select an
 LLM, invent world canon, or silently rewrite story/prompt intent.
 
@@ -77,7 +77,7 @@ Execution may later be parallelized or reordered for dependencies/cost, but Film
 
 ## Current media boundary
 
-The current v2 contract is generated-video only. Future still or physical
+The current EpisodePackage contract is generated-video only. Future still or physical
 extensions must be versioned explicitly and must not leak route selection back
 into the creative LLM context.
 
@@ -142,10 +142,9 @@ These reflect the local setup; they are conventions, not contract rules.
 - The image-guide HTML is written automatically next to the storyboard
   (`<out>.image-guide.html`).
 
-### Validate v3 packages here, not in forge-worlds
+### Validate EpisodePackage here
 
-`forge-worlds episode validate` has a v2 fall-through and rejects v3 packages.
-Validate `episode_package_v3` here: `.venv/bin/forge-studios validate <pkg>`.
+Validate the current unversioned EpisodePackage here: `.venv/bin/forge-studios validate <pkg>`. Old generated package versions are not maintained; regenerate them with the current Forge Worlds pipeline instead.
 
 ### Secrets
 
