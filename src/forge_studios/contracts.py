@@ -51,7 +51,7 @@ class Shot(BaseModel):
     entity_ids: list[str] = Field(default_factory=list, exclude=True)
     dialogue_ids: list[str] = Field(default_factory=list, exclude=True)
     camera: dict[str, Any] = Field(default_factory=dict, exclude=True)
-    visual_constraints: dict[str, Any] = Field(default_factory=dict, exclude=True)
+    visual_constraints: dict[str, Any] = Field(default_factory=dict)
     performance_intent: dict[str, Any] = Field(default_factory=dict, exclude=True)
     edit_intent: dict[str, Any] = Field(default_factory=dict, exclude=True)
     continuity_asset_ids: list[str] = Field(default_factory=list, exclude=True)
@@ -119,7 +119,7 @@ class AssetRecord(BaseModel):
 class EpisodePackage(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    package_version: Literal["episode_package_v2", "episode_package_v3"]
+    package_version: Literal["episode_package"] = "episode_package"
     production_id: str
     episode_id: str
     revision: int = 1
