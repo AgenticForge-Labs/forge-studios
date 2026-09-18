@@ -15,7 +15,7 @@ from forge_studios.telemetry import TelemetrySink
 
 def make_package(*, inherited: bool = True) -> EpisodePackage:
     return EpisodePackage(
-        package_version="episode_package_v2",
+        package_version="episode_package",
         production_id="p",
         episode_id="e",
         world_id="w",
@@ -57,7 +57,7 @@ def make_package(*, inherited: bool = True) -> EpisodePackage:
 def test_public_json_remains_readable_v2_contract(tmp_path):
     path = save_json(tmp_path / "package.json", make_package())
     raw = json.loads(path.read_text())
-    assert raw["package_version"] == "episode_package_v2"
+    assert raw["package_version"] == "episode_package"
     assert "scenes" not in raw
     serialized = path.read_text()
     for forbidden in ("execution_route", "render_strategy", '"frame_plan":', "physical_take", "storyboard_asset"):
@@ -125,7 +125,7 @@ def test_storyboard_is_built_from_boundary_pairs_only(tmp_path):
 
 def test_legacy_v2_nonadjacent_handoff_is_still_loadable():
     package = EpisodePackage(
-        package_version="episode_package_v2",
+        package_version="episode_package",
         production_id="p", episode_id="e", world_id="w", show_id="s",
         title="Legacy", premise="Legacy", arc="Legacy", target_duration_seconds=60,
         beats=[{"beat_id": "a"}, {"beat_id": "b"}, {"beat_id": "c"}],
@@ -135,5 +135,5 @@ def test_legacy_v2_nonadjacent_handoff_is_still_loadable():
             Shot(shot_id="c", beat_id="c", duration_seconds=20, site_id="x", frame_plan_mode="start_and_end", inherits_start_from_shot_id="a", start_frame_prompt="A", end_frame_prompt="D", video_prompt="A becomes D over time."),
         ],
     )
-    assert package.package_version == "episode_package_v2"
+    assert package.package_version == "episode_package"
     assert package.shots[2].frame_plan.chain_from_shot_id == "a"
