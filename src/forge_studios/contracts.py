@@ -29,6 +29,7 @@ class Shot(BaseModel):
     character_ids: list[str] = Field(default_factory=list)
     visible_entity_ids: list[str] = Field(default_factory=list)
     reference_asset_ids: list[str] = Field(default_factory=list)
+    reference_uses: dict[str, str] = Field(default_factory=dict)
     frame_plan_mode: Literal["start_only", "start_and_end"] | None = None
     inherits_start_from_shot_id: str | None = None
     start_frame_prompt: str
@@ -51,7 +52,7 @@ class Shot(BaseModel):
     entity_ids: list[str] = Field(default_factory=list, exclude=True)
     dialogue_ids: list[str] = Field(default_factory=list, exclude=True)
     camera: dict[str, Any] = Field(default_factory=dict, exclude=True)
-    visual_constraints: dict[str, Any] = Field(default_factory=dict, exclude=True)
+    visual_constraints: dict[str, Any] = Field(default_factory=dict)
     performance_intent: dict[str, Any] = Field(default_factory=dict, exclude=True)
     edit_intent: dict[str, Any] = Field(default_factory=dict, exclude=True)
     continuity_asset_ids: list[str] = Field(default_factory=list, exclude=True)
@@ -66,6 +67,11 @@ class Shot(BaseModel):
 
     @model_validator(mode="after")
     def compile_internal_video_state(self) -> Shot:
+        unknown_reference_uses = set(self.reference_uses) - set(self.reference_asset_ids)
+        if unknown_reference_uses:
+            raise ValueError(
+                f"reference_uses names assets not present in reference_asset_ids: {sorted(unknown_reference_uses)}"
+            )
         mode = self.frame_plan_mode or (
             "start_and_end" if (self.end_frame_prompt or "").strip() else "start_only"
         )
@@ -119,7 +125,7 @@ class AssetRecord(BaseModel):
 class EpisodePackage(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    package_version: Literal["episode_package_v2", "episode_package_v3"]
+    package_version: Literal["episode_package"] = "episode_package"
     production_id: str
     episode_id: str
     revision: int = 1

@@ -87,7 +87,7 @@ def generate_boundary_candidates(
     on_frame_complete=None,
     progress: Callable[[str], None] | None = None,
 ):
-    """Generate the actual frame candidates requested by each v3 shot.
+    """Generate the actual frame candidates requested by each production shot.
 
     `start_only` generates only the visual start anchor. `start_and_end` additionally
     generates the authored destination frame. The current Forge Born workflow uses

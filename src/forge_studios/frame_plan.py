@@ -210,6 +210,8 @@ def _semantic_shot_payload(shot: Shot) -> dict[str, Any]:
         "character_ids": list(shot.character_ids),
         "visible_entity_ids": list(shot.visible_entity_ids),
         "reference_asset_ids": list(shot.reference_asset_ids),
+        "reference_uses": dict(shot.reference_uses),
+        "visual_constraints": dict(shot.visual_constraints),
         "frame_plan_mode": shot.frame_plan_mode,
         "inherits_start_from_shot_id": shot.inherits_start_from_shot_id,
         "start_frame_prompt": shot.start_frame_prompt,
