@@ -7,7 +7,7 @@ from forge_studios.storyboard import generate_boundary_candidates
 
 def package() -> EpisodePackage:
     return EpisodePackage.model_validate({
-        "package_version": "episode_package_v3",
+        "package_version": "episode_package",
         "production_id": "test-v3",
         "episode_id": "e1",
         "world_id": "forge-born",
@@ -65,7 +65,7 @@ def test_v3_start_only_compiles_without_end_frame():
 
 def test_v2_shape_without_public_mode_infers_start_and_end():
     raw = package().model_dump(mode="json", exclude_none=True, exclude_defaults=True)
-    raw["package_version"] = "episode_package_v2"
+    raw["package_version"] = "episode_package"
     shot = raw["shots"][0]
     shot.pop("frame_plan_mode", None)
     shot["end_frame_prompt"] = "Wide objective view of Ember sitting upright on the altar and looking toward the steps."
