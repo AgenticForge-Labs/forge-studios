@@ -46,7 +46,7 @@ def bind_inherited_start_frame(package: EpisodePackage, shot_id: str) -> str:
     endpoint=predecessor.approved_end_frame_asset_id
     if not endpoint:
         raise FramePlanError(FramePlanIssue(
-            'CHAINED_START_ENDPOINT_MISSING',
+            'ENDPOINT_HANDOFF_ENDPOINT_MISSING',
             f"Shot {shot_id!r} waits for predecessor {predecessor.shot_id!r}'s approved end frame.",
             shot_id,predecessor.shot_id,
         ))
