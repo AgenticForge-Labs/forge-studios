@@ -1,3 +1,4 @@
+from forge_studios.animator.service import _reference_input
 from forge_studios.contracts import AssetRecord, EpisodePackage, Shot
 from forge_studios.frame_plan import validate_frame_plans
 from forge_studios.io import save_json
@@ -60,3 +61,27 @@ def test_visual_constraints_are_part_of_the_public_handoff():
         "arch",
         "glowing rune grooves",
     ]
+
+
+def test_reference_uses_are_public_and_override_catalog_default_for_provider():
+    value = package()
+    value.shots[0].reference_uses = {
+        "ref": (
+            "Supporting site reference only: distant background landmark visible beyond "
+            "the path. Do not use it as the primary scene composition."
+        )
+    }
+
+    payload = value.model_dump(mode="json", exclude_none=True, exclude_defaults=True)
+    assert payload["shots"][0]["reference_uses"]["ref"].startswith(
+        "Supporting site reference only"
+    )
+
+    reference = _reference_input(
+        value,
+        value.shots[0],
+        "ref",
+        start_id=None,
+    )
+    assert reference["use"].startswith("Supporting site reference only")
+    assert "primary scene composition" in reference["use"]
