@@ -191,7 +191,6 @@ class GenerationAttempt(BaseModel):
     attempt_id: str = Field(default_factory=lambda: f"attempt_{uuid4().hex}")
     production_id: str
     episode_id: str
-    scene_id: str | None = None
     shot_id: str
     role: Literal["start_frame", "end_frame", "video", "physical_take", "final_render"]
     provider: str
