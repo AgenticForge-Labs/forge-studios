@@ -110,7 +110,6 @@ class AssetRecord(BaseModel):
     status: str = "candidate"
     authority: str = "generated"
     episode_id: str | None = None
-    scene_id: str | None = None
     shot_id: str | None = None
     attempt_id: str | None = None
     source_asset_ids: list[str] = Field(default_factory=list)
