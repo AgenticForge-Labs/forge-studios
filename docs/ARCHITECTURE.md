@@ -1,108 +1,89 @@
 # Forge Studios architecture
 
-Forge Studios is the public execution side of the AgenticForge production system. It consumes `episode_package_v1` and executes the ordered shot sequence without owning the fictional world or silently rewriting creative intent.
+Forge Studios is the public deterministic execution side of AgenticForge.
 
-## Components
+## Contract boundary
+
+```text
+Forge Worlds or hand author
+        ↓
+   EpisodePackage
+        ↓
+      Director
+        ↓
+      Animator
+        ↓
+     Filmmaker
+        ↓
+  final production
+```
+
+There is one current unversioned EpisodePackage:
 
 ```text
 EpisodePackage
-      ↓
-   Director
-      ↓
- ┌───────────────┬──────────────────┐
- │ Animator      │ Forge Puppeteer  │
- │ synthetic     │ physical         │
- └───────────────┴──────────────────┘
-      ↓
-   Filmmaker
-      ↓
- final production
+├── beats[]
+├── shots[]
+└── assets[]
 ```
 
-Director owns execution planning, dependencies, routine retries, approvals according to explicit policy, and escalation. Animator owns synthetic still/keyframe/video execution. Forge Puppeteer is a separately installable physical backend. Filmmaker assembles approved media from either path.
+The package has no active `scenes[]` hierarchy. Ordered `shots[]` is the narrative
+and production sequence. Old scene-based or numbered package contracts are not
+execution inputs.
 
-## One package, many projections
+## Director
 
-The ordered `scenes[].shots[]` list is the master production/narrative sequence. Director's work list, storyboard HTML and Filmmaker edit plan are derived views of that package. They are not additional authored sources of truth.
+Director derives execution work from the package. It does not author story. Work plans,
+storyboards, timelines, and dependency views are projections and cannot become competing
+sources of truth.
 
-Director is free to generate independent shots in another order later, but it must preserve package sequence for narrative assembly.
+## Animator
 
-## Manual and automatic execution share primitives
+Animator compiles authored shot intent into provider requests. A shot supplies:
 
-The core operations are intentionally callable as Python functions and CLI commands:
+- site/beat identity;
+- static boundary prompt(s);
+- chronological video prompt;
+- approved reference IDs;
+- per-reference usage semantics;
+- visual constraints;
+- frame policy and media lifecycle fields.
 
-- inspect/edit a shot
-- register/bind a canonical reference
-- set a role-specific prompt
-- generate storyboard candidate(s)
-- approve/reject and attach structured review data
-- generate explicit start/end frames
-- generate video
-- dispatch a physical shot
-- render a storyboard or final edit
+Provider adapters own transport URLs and provider-specific parameters.
 
-Director calls the same functions. `auto` simply applies an `AutonomyPolicy` to those primitives.
+## Boundary frames
 
-Default Director behavior is conservative: it can create a cheap storyboard candidate and then stops at human review. Expensive video or physical execution requires explicit permission. Auto-approval is opt-in separately for storyboards, frames, clips and physical takes.
+`start_only` uses one approved static start image. `start_and_end` additionally uses
+an approved destination frame. Generated endpoint inheritance is explicit rather than
+inferred from shot adjacency.
 
-## Shot execution routes
+Boundary prompts describe static visible compositions. Temporal action and synchronized
+audio belong in the video prompt.
 
-`execution_route`:
-- `animator`
-- `puppeteer`
-- `hybrid`
+## Reference roles
 
-`render_strategy`:
-- `still`
-- `still_motion`
-- `generated_video`
-- `physical`
-- `hybrid`
+Reference images are evidence with explicit roles, not generic inspiration. A primary
+site view grounds composition; identity references ground character design; supporting
+site views may provide distant/background evidence. Studios must preserve the
+`reference_uses` supplied upstream.
 
-An episode can mix Animator and physical shots freely. A true same-shot hybrid/composite can collect both synthetic and physical assets, but advanced compositing remains a Filmmaker extension; the first renderer is deliberately deterministic and simple.
+## Review and provenance
 
-## Boundary-frame control
+Each generation attempt records provider/model/options, prompts, ordered inputs, outputs,
+errors, latency/cost when available, and review decisions. Candidate history is retained.
 
-`frame_plan` is semantic intent:
-- `still`
-- `start_only`
-- `start_and_end`
-- `chained_start`
+## Filmmaker
 
-Start/end frames are approved assets *before* expensive video when the plan requires them. This differs from extracting first/last frames *after* a clip. Provider field names remain adapter configuration rather than EpisodePackage fields.
+Filmmaker selects approved media in package order and creates deterministic edit/timeline
+projections. It does not introduce a second editorial truth.
 
-The fal adapter supports local canonical references: a local path remains in the package until a fal request needs it, then fal-client uploads the file and supplies the provider URL. This keeps storage concerns out of story contracts.
+## Autonomy
 
-## Review data is product data
+Manual and automatic execution use the same primitives. Director applies explicit
+permissions for generation, approval, paid video, and retries. Creative revision remains
+outside Studios.
 
-Every generated asset keeps its generation provenance: attempt ID, role, prompt, provider/model, provider options, reference IDs, start/end IDs and a snapshot of relevant shot design features.
+## External boundaries
 
-Approvals/rejections may also capture:
-- free-text note/reason
-- structured tags such as `scale`, `anatomy`, `continuity`, `composition`
-- numeric scores such as `continuity=5`
-
-These reviews are persisted on the asset and emitted to telemetry. They are useful both for production debugging and later Forge Researcher learning.
-
-## Telemetry boundary
-
-Public Forge Studios records operational facts, not proprietary optimization logic. JSONL events provide enough lineage for private Researcher ingestion:
-
-- generation start/success/failure
-- generated asset lineage
-- provider/model/options
-- shot design snapshot
-- human/automatic approval or rejection
-- physical take
-- final render
-- latency/cost when available
-
-Audience metrics, experiments, causal analysis and learned policy remain in Forge Researcher.
-
-## Secrets
-
-Secrets never belong in EpisodePackage, telemetry or Git. Forge Studios can store a fal key in the user-only AgenticForge credential file and passes it directly to `fal_client.SyncClient(key=...)`. Standard fal-client `FAL_KEY` or `fal auth login` also remains compatible.
-
-## Physical boundary
-
-Forge Studios does not import robot SDKs. It emits a semantic `forge_puppeteer_request_v1` to the external Forge Puppeteer command/service and receives a `forge_puppeteer_take_v1` result. Hardware calibration, cameras, motors and safety enforcement belong behind the Puppeteer/Stage boundary.
+World/canon reasoning belongs in Forge Worlds. Physical robot/stage execution belongs in
+Forge Puppeteer. Private experimentation/optimization belongs in Forge Researcher.
