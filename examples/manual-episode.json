@@ -8,14 +8,17 @@
   "title": "Awakening",
   "premise": "A small creature wakes in an unfamiliar place and begins to look around.",
   "arc": "Confusion becomes cautious curiosity.",
-  "tone": "quiet, character-driven",
+  "status": "prompt_ready",
   "target_duration_seconds": 12,
   "beats": [
     {
       "beat_id": "beat_awaken",
+      "purpose": "Establish awareness before explanation.",
       "site_id": "place_ruin",
       "duration_seconds": 12,
-      "narrative": "The creature wakes on the central pedestal and looks around."
+      "narrative": "The creature wakes on the pedestal and looks around.",
+      "start_state": "The creature rests on the pedestal with eyes closed.",
+      "end_state": "The creature is awake and alert on the same pedestal."
     }
   ],
   "shots": [
@@ -25,34 +28,33 @@
       "duration_seconds": 12,
       "site_id": "place_ruin",
       "character_ids": ["character_creature"],
-      "reference_asset_ids": [
-        "character_creature_reference",
-        "place_ruin_establishing"
-      ],
+      "reference_asset_ids": ["creature_reference", "ruin_reference"],
       "reference_uses": {
-        "character_creature_reference": "Character identity reference.",
-        "place_ruin_establishing": "Primary site view; preserve the established wide composition and geometry."
+        "creature_reference": "Character identity, anatomy, proportions, materials and colors; do not copy the source pose or camera.",
+        "ruin_reference": "Primary site view and established spatial geometry for this shot."
       },
       "frame_plan_mode": "start_only",
-      "start_frame_prompt": "Wide objective view of the small creature resting on the central stone pedestal in the established open-air ruin under ordinary dawn light.",
-      "video_prompt": "The creature slowly opens its eyes, pauses, lifts its head, and quietly studies the unfamiliar surroundings while natural outdoor ambience continues."
+      "start_frame_prompt": "Wide objective view of the small creature resting on the central stone pedestal with eyes closed in the established open-air ruin under ordinary dawn light.",
+      "video_prompt": "From the supplied start image, the creature slowly opens its eyes, pauses, raises its head slightly, and looks around with cautious curiosity. Preserve the established site geometry, character anatomy, scale, and ordinary dawn lighting."
     }
   ],
   "assets": [
     {
-      "asset_id": "character_creature_reference",
+      "asset_id": "creature_reference",
       "entity_id": "character_creature",
       "kind": "reference_image",
-      "uri": "asset://character_creature_reference",
+      "uri": "asset://creature-reference",
       "status": "canon",
+      "authority": "locked",
       "role": "canonical-reference"
     },
     {
-      "asset_id": "place_ruin_establishing",
+      "asset_id": "ruin_reference",
       "entity_id": "place_ruin",
       "kind": "reference_image",
-      "uri": "asset://place_ruin_establishing",
+      "uri": "asset://ruin-reference",
       "status": "canon",
+      "authority": "locked",
       "role": "canonical-establishing"
     }
   ]
