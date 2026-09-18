@@ -66,6 +66,9 @@ Execution may later be parallelized or reordered for dependencies/cost, but Film
 - Provider-specific request fields belong in adapters.
 - Local reference files may be uploaded by the provider adapter at execution time; the package may retain storage-neutral/local URIs.
 - Persist generation attempt ID, prompt, references, provider/model/options, source assets, latency, errors, and outputs.
+- Honor shot-level `reference_uses` when present. A supporting site reference may be
+  distant/background evidence and must not be promoted to the primary scene
+  composition merely because it is a canonical site image.
 - Treat stochastic generation as a candidate process, never as canon authority.
 
 ## Filmmaker rules
