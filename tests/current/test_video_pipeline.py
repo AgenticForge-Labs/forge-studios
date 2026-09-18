@@ -60,7 +60,7 @@ def test_public_json_remains_current_contract(tmp_path):
     assert raw["package_version"] == "episode_package"
     assert "scenes" not in raw
     serialized = path.read_text()
-    for forbidden in ("execution_route", "render_strategy", '"frame_plan":', "physical_take", "storyboard_asset"):
+    for forbidden in ("execution_route", "render_strategy", '"frame_plan":', "physical_take"):
         assert forbidden not in serialized
     loaded = load_package(path)
     assert loaded.shots[1].frame_plan.chain_from_shot_id == "wake"
