@@ -9,25 +9,6 @@ from .frame_plan import predecessor_for
 from .providers.base import MediaRequest
 
 
-def generate_storyboard_candidates(package: EpisodePackage, animator, *, skip_existing: bool = True, on_shot_complete=None, progress: Callable[[str], None] | None = None):
-    """Legacy planning-still generator retained only for old callers/tests."""
-    generated = []
-    shots = package.shots
-    total = len(shots)
-    for index, shot in enumerate(shots, 1):
-        if skip_existing and (shot.storyboard_asset_ids or shot.approved_storyboard_asset_id):
-            if progress:
-                progress(f'[legacy-storyboard] {index}/{total} {shot.shot_id}: existing candidate; skipping')
-            continue
-        if progress:
-            progress(f'[legacy-storyboard] {index}/{total} {shot.shot_id}: generating planning image')
-        assets = animator.generate(package, shot.shot_id, role='storyboard')
-        generated.extend(assets)
-        if on_shot_complete:
-            on_shot_complete(package, shot, assets)
-    return generated
-
-
 def _latest_boundary_id(shot, role: str) -> str | None:
     if role == 'start_frame':
         return shot.approved_start_frame_asset_id or (shot.start_frame_asset_ids[-1] if shot.start_frame_asset_ids else None)
