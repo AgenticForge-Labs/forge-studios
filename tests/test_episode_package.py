@@ -35,7 +35,7 @@ def package():
     )
 
 
-def test_v2_package_validates_without_scene_or_route_fields(tmp_path):
+def test_current_package_validates_without_scene_or_route_fields(tmp_path):
     value = package()
     assert validate_frame_plans(value) == []
     path = save_json(tmp_path / "package.json", value)
@@ -43,3 +43,20 @@ def test_v2_package_validates_without_scene_or_route_fields(tmp_path):
     assert '"scenes"' not in text
     assert '"execution_route"' not in text
     assert '"frame_plan"' not in text
+
+
+def test_visual_constraints_are_part_of_the_public_handoff():
+    value = package()
+    value.shots[0].visual_constraints = {
+        "must_show": ["raised circular altar"],
+        "must_not_show": ["arch", "glowing rune grooves"],
+    }
+
+    payload = value.model_dump(mode="json", exclude_none=True, exclude_defaults=True)
+
+    assert payload["package_version"] == "episode_package"
+    assert payload["shots"][0]["visual_constraints"]["must_show"] == ["raised circular altar"]
+    assert payload["shots"][0]["visual_constraints"]["must_not_show"] == [
+        "arch",
+        "glowing rune grooves",
+    ]
