@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import hashlib
-import json
 import re
 from dataclasses import asdict, dataclass
 from difflib import SequenceMatcher
@@ -36,22 +34,22 @@ def predecessor_for(package: EpisodePackage, shot: Shot) -> Shot:
     chain_from = shot.frame_plan.chain_from_shot_id
     if not chain_from:
         raise FramePlanError(FramePlanIssue(
-            "CHAINED_START_MISSING_PREDECESSOR",
-            f"Shot {shot.shot_id!r} uses chained_start but has no chain_from_shot_id.",
+            "ENDPOINT_HANDOFF_MISSING_PREDECESSOR",
+            f"Shot {shot.shot_id!r} inherits an endpoint but has no chain_from_shot_id.",
             shot.shot_id,
         ))
     shots = ordered_shots(package)
     positions = {item.shot_id: index for index, item in enumerate(shots)}
     if chain_from not in positions:
         raise FramePlanError(FramePlanIssue(
-            "CHAINED_START_UNKNOWN_PREDECESSOR",
+            "ENDPOINT_HANDOFF_UNKNOWN_PREDECESSOR",
             f"Shot {shot.shot_id!r} chains from unknown predecessor {chain_from!r}.",
             shot.shot_id,
             chain_from,
         ))
     if positions[chain_from] >= positions[shot.shot_id]:
         raise FramePlanError(FramePlanIssue(
-            "CHAINED_START_PREDECESSOR_NOT_EARLIER",
+            "ENDPOINT_HANDOFF_PREDECESSOR_NOT_EARLIER",
             f"Shot {shot.shot_id!r} must chain from an earlier shot, not {chain_from!r}.",
             shot.shot_id,
             chain_from,
@@ -92,7 +90,7 @@ def _viewpoint(shot: Shot) -> str:
     ) else "objective"
 
 
-def _scene_location_by_shot(package: EpisodePackage) -> dict[str, str | None]:
+def _site_by_shot(package: EpisodePackage) -> dict[str, str | None]:
     return {shot.shot_id: shot.site_id for shot in package.shots}
 
 
@@ -200,58 +198,6 @@ def _boundary_prompt_issues(shot: Shot, *, require_compositions: bool = False) -
     return issues
 
 
-def _semantic_shot_payload(shot: Shot) -> dict[str, Any]:
-    return {
-        "shot_id": shot.shot_id,
-        "beat_id": shot.beat_id,
-        "duration_seconds": shot.duration_seconds,
-        "site_id": shot.site_id,
-        "site_area_id": shot.site_area_id,
-        "character_ids": list(shot.character_ids),
-        "visible_entity_ids": list(shot.visible_entity_ids),
-        "reference_asset_ids": list(shot.reference_asset_ids),
-        "reference_uses": dict(shot.reference_uses),
-        "visual_constraints": dict(shot.visual_constraints),
-        "frame_plan_mode": shot.frame_plan_mode,
-        "inherits_start_from_shot_id": shot.inherits_start_from_shot_id,
-        "start_frame_prompt": shot.start_frame_prompt,
-        "end_frame_prompt": shot.end_frame_prompt,
-        "video_prompt": shot.video_prompt,
-    }
-
-
-def package_semantic_fingerprint(package: EpisodePackage) -> str:
-    payload = {
-        "package_version": package.package_version,
-        "production_id": package.production_id,
-        "episode_id": package.episode_id,
-        "revision": package.revision,
-        "world_id": package.world_id,
-        "target_duration_seconds": package.target_duration_seconds,
-        "beats": package.beats,
-        "shots": [_semantic_shot_payload(shot) for shot in package.shots],
-    }
-    raw = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str)
-    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
-
-
-def _stale_package_issue(package: EpisodePackage) -> FramePlanIssue | None:
-    trace = package.trace if isinstance(package.trace, dict) else {}
-    expected = trace.get("semantic_fingerprint")
-    version = trace.get("semantic_fingerprint_version")
-    if version not in {"v2", "v3"} or not isinstance(expected, str) or not expected:
-        return None
-    actual = package_semantic_fingerprint(package)
-    if actual == expected:
-        return None
-    return FramePlanIssue(
-        "STALE_DERIVED_PACKAGE_STATE",
-        "EpisodePackage semantic production intent changed after derived production state was recorded. "
-        "Re-run deterministic finalization before provider spend.",
-        "__package__",
-    )
-
-
 def validate_frame_plans(
     package: EpisodePackage,
     *,
@@ -259,14 +205,10 @@ def validate_frame_plans(
     shot_id: str | None = None,
 ) -> list[FramePlanIssue]:
     issues: list[FramePlanIssue] = []
-    stale = _stale_package_issue(package)
-    if stale is not None:
-        issues.append(stale)
-
     shots = ordered_shots(package)
     selected = [shot for shot in shots if shot_id is None or shot.shot_id == shot_id]
     positions = {item.shot_id: index for index, item in enumerate(shots)}
-    locations = _scene_location_by_shot(package)
+    locations = _site_by_shot(package)
 
     for shot in selected:
         for role in ("start_frame", "end_frame"):
@@ -284,7 +226,7 @@ def validate_frame_plans(
                     shot.shot_id,
                 ))
 
-        if shot.frame_plan.mode not in {"start_only", "start_and_end", "chained_start"}:
+        if shot.frame_plan.mode not in {"start_only", "start_and_end"}:
             issues.append(FramePlanIssue(
                 "UNSUPPORTED_FRAME_PLAN_MODE",
                 f"Shot {shot.shot_id!r} uses unsupported frame plan mode {shot.frame_plan.mode!r}.",
@@ -305,8 +247,7 @@ def validate_frame_plans(
                 shot.shot_id,
             ))
 
-    # Endpoint inheritance remains available for future start_and_end/chained_start
-    # experiments, but the current Forge Born v3 package does not use it.
+    # Exact endpoint inheritance is explicit on a start_and_end shot; adjacency alone never implies it.
     for shot in selected:
         transition_mode = _transition_mode(shot)
         if shot.frame_plan.mode == "start_only":
@@ -384,8 +325,7 @@ def validate_frame_plans(
 
     for shot in selected:
         inherits_endpoint = (
-            shot.frame_plan.mode == "chained_start"
-            or (shot.frame_plan.mode == "start_and_end" and bool(shot.frame_plan.chain_from_shot_id))
+            shot.frame_plan.mode == "start_and_end" and bool(shot.frame_plan.chain_from_shot_id)
         )
         if not inherits_endpoint:
             continue
@@ -397,7 +337,7 @@ def validate_frame_plans(
         endpoint = predecessor.approved_end_frame_asset_id
         if endpoint and shot.frame_plan.start_asset_id and shot.frame_plan.start_asset_id != endpoint:
             issues.append(FramePlanIssue(
-                "CHAINED_START_ASSET_MISMATCH",
+                "ENDPOINT_HANDOFF_ASSET_MISMATCH",
                 f"Shot {shot.shot_id!r} explicitly names start asset {shot.frame_plan.start_asset_id!r}, "
                 f"but predecessor {predecessor.shot_id!r} ends at approved asset {endpoint!r}.",
                 shot.shot_id,
@@ -406,7 +346,7 @@ def validate_frame_plans(
             ))
         if endpoint and shot.approved_start_frame_asset_id and shot.approved_start_frame_asset_id != endpoint:
             issues.append(FramePlanIssue(
-                "CHAINED_START_APPROVED_ASSET_MISMATCH",
+                "ENDPOINT_HANDOFF_APPROVED_ASSET_MISMATCH",
                 f"Shot {shot.shot_id!r} approves a start asset different from predecessor {predecessor.shot_id!r}'s endpoint.",
                 shot.shot_id,
                 predecessor.shot_id,
@@ -414,7 +354,7 @@ def validate_frame_plans(
             ))
         if require_approved_end_frames and not endpoint:
             issues.append(FramePlanIssue(
-                "CHAINED_START_ENDPOINT_MISSING",
+                "ENDPOINT_HANDOFF_ENDPOINT_MISSING",
                 f"Shot {shot.shot_id!r} cannot generate video until predecessor {predecessor.shot_id!r} has an approved end frame.",
                 shot.shot_id,
                 predecessor.shot_id,
