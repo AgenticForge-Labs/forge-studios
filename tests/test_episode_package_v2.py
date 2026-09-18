@@ -5,7 +5,7 @@ from forge_studios.io import save_json
 
 def package():
     return EpisodePackage(
-        package_version="episode_package_v2",
+        package_version="episode_package",
         production_id="p",
         episode_id="e",
         world_id="w",
