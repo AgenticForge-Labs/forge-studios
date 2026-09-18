@@ -8,7 +8,7 @@ from forge_studios.storyboard import generate_boundary_candidates
 def package() -> EpisodePackage:
     return EpisodePackage.model_validate({
         "package_version": "episode_package",
-        "production_id": "test-v3",
+        "production_id": "test-current",
         "episode_id": "e1",
         "world_id": "forge-born",
         "show_id": "forge-born",
