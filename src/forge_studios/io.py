@@ -13,7 +13,10 @@ def load_json(path: str | Path) -> dict[str, Any]:
 def save_json(path: str | Path, value: Any) -> Path:
     p = Path(path); p.parent.mkdir(parents=True, exist_ok=True)
     if hasattr(value, 'model_dump'):
+        package_version = getattr(value, 'package_version', None)
         value = value.model_dump(mode='json', exclude_none=True, exclude_defaults=True)
+        if package_version is not None:
+            value['package_version'] = package_version
     p.write_text(json.dumps(value, indent=2, ensure_ascii=False) + '\n')
     return p
 
