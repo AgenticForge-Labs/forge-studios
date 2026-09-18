@@ -1,147 +1,134 @@
 # Forge Studios
 
-Open execution runtime for AgenticForge productions. Forge Studios consumes the
-video-first `episode_package_v2` contract and executes its generated-video units
-without rewriting their story or prompts.
+Forge Studios is the deterministic media-execution runtime for AgenticForge. It consumes
+one current, unversioned `EpisodePackage` from Forge Worlds (or an equivalent
+hand-authored producer) and executes its ordered generated-video shots without rewriting
+story intent.
 
-**Director** decides what media work is required. **Animator** makes exact
-start/end boundary candidates and generated video. **Filmmaker** assembles
-approved media. The current package contract has no physical or still route;
-those remain possible future extensions.
+## Current package boundary
 
-The package is the master narrative/production sequence. Storyboard HTML, Director work plans, timeline projections, and edit plans are derived from that package rather than becoming separate sources of truth.
+```text
+EpisodePackage
+├── beats[]
+├── shots[]
+└── assets[]
+```
 
-See [`docs/ROADMAP.md`](docs/ROADMAP.md) for the staged production roadmap, including controlled multi-model comparisons, data collection, continuity, automated criticism, and later learned routing.
+The package marker is:
+
+```text
+package_version = "episode_package"
+```
+
+There is no supported `scenes[]` package hierarchy and no compatibility path for
+numbered EpisodePackage generations. Old generated packages should be regenerated
+upstream.
+
+Director uses `package.shots` as the master narrative/production order. Storyboard
+HTML, work plans, timelines, and edit plans are derived projections, not alternate
+sources of truth.
+
+## Components
+
+- **Director** determines what execution work is needed next.
+- **Animator** creates start/end frame candidates and generated video using provider
+  adapters.
+- **Filmmaker** assembles approved media deterministically.
+- **Telemetry** records attempts, provenance, review decisions, latency, and cost when
+  available.
+
+Forge Studios does not choose an LLM, invent canon, add story events, or repair creative
+intent.
 
 ## Install
 
 ```bash
 python -m pip install -e '.[dev]'
-python -m pip install -e '.[fal,dev]'       # fal.ai generation
-python -m pip install -e '.[timeline,dev]'  # OpenTimelineIO projection
-python -m pip install -e '.[full,dev]'      # all optional Python integrations
+python -m pip install -e '.[fal,dev]'
+python -m pip install -e '.[timeline,dev]'
+python -m pip install -e '.[full,dev]'
 ```
 
-MLT rendering additionally requires a compatible system MLT installation. FFmpeg is used for deterministic rendering/boundary extraction where applicable.
-
-## Manual-first workflow
-
-The intended development loop is exactly the pipeline used later by Director: inspect one shot, bind references, edit its prompt/frame plan, generate candidates, approve/reject, then continue.
+## Validate and inspect
 
 ```bash
-forge-studios validate episode.json
-forge-studios plan --package episode.json
-forge-studios show-shot --package episode.json --shot-id s01
+forge-studios validate episode-package.json
+forge-studios plan --package episode-package.json
+forge-studios show-shot --package episode-package.json --shot-id <shot_id>
 ```
 
-Forge Worlds resolves stable reference IDs before handoff. Prompts can still be
-refined manually without changing the rest of the episode:
+The public shot contains the authored production intent: beat/site IDs, references,
+reference-use instructions, frame policy, static boundary prompt(s), video prompt,
+visual constraints, and media lifecycle bindings.
+
+## Storyboard and media generation
+
+Generate boundary candidates and a review page:
 
 ```bash
-forge-studios set-prompt --package episode.json --shot-id s01 --role start_frame --text 'Exact starting composition...'
-forge-studios set-prompt --package episode.json --shot-id s01 --role end_frame --text 'Exact destination composition...'
-forge-studios set-prompt --package episode.json --shot-id s01 --role video --text 'Only the intended temporal change...'
+forge-studios storyboard   --package episode-package.json   --out storyboard.html   --generate   --provider fal   --mode cheap
 ```
 
-Generate the actual boundary-image pairs and assemble the human review page:
+The current default Worlds workflow is `start_only`: one static start frame grounds
+the shot and the video prompt carries the full audiovisual performance. A shot may use
+`start_and_end` when an explicit destination frame is useful.
+
+Generate and approve production assets before expensive video:
 
 ```bash
-forge-studios storyboard --package episode.json --out storyboard.html \
-  --generate --provider fal --mode cheap
+forge-studios generate --package episode-package.json --shot-id <shot> --role start_frame --provider fal
+forge-studios approve --package episode-package.json --shot-id <shot> --kind start_frame --asset-id <asset>
+forge-studios generate --package episode-package.json --shot-id <shot> --role video --provider fal
 ```
 
-After review, approve or reject while preserving structured review data:
+For `start_and_end`, generate/approve the end frame before video as well.
+
+Regeneration appends new attempts/assets; it does not erase candidate history.
+
+## Reference semantics
+
+Forge Worlds resolves world/view IDs to stable reference assets before handoff.
+`reference_uses` tells Studios how each input should be interpreted. For example, a
+supporting site view may be evidence for a distant landmark and must not replace the
+primary scene composition.
+
+Studios preserves these instructions when compiling provider requests. It does not infer
+a new world view or reinterpret the selected site.
+
+## Progressive autonomy
+
+Manual and agentic execution call the same primitives. Director defaults to conservative
+review gates; automated generation and automated approval are separate permissions.
+Paid video remains explicitly gated.
 
 ```bash
-forge-studios reject --package episode.json --shot-id s01 --asset-id asset_... \
-  --reason 'Wrong anatomy' --tag anatomy --score anatomy=1
+forge-studios auto --package episode-package.json --provider fal
 ```
 
-Regeneration is another `generate`; attempts accumulate with provenance rather than overwriting history.
+## Provider configuration
 
-The package always uses start/end boundary planning. Approve the reviewed
-boundary candidates before spending on motion generation:
+The built-in fal adapter supports local approved references and uploads them only when a
+provider-accessible URL is required. Provider/model-specific field names stay inside
+adapters rather than the EpisodePackage.
+
+Use `--mode cheap` for routine iteration. Current cheap defaults are documented in
+`AGENTS.md`.
+
+Never commit provider keys, credentials, or local secret files.
+
+## Filmmaker
 
 ```bash
-forge-studios generate --package episode.json --shot-id s02 --role start_frame --provider fal
-forge-studios approve --package episode.json --shot-id s02 --kind start_frame --asset-id asset_...
-forge-studios generate --package episode.json --shot-id s02 --role end_frame --provider fal
-forge-studios approve --package episode.json --shot-id s02 --kind end_frame --asset-id asset_...
-forge-studios generate --package episode.json --shot-id s02 --role video --provider fal
+forge-studios edit-plan --package episode-package.json --out edit-plan.json
+forge-studios render --package episode-package.json --out episode.mp4
+forge-studios timeline --package episode-package.json --out episode.otio --require-media
 ```
 
-Post-generation boundary extraction is available separately and does not replace pre-approved boundary frames:
+Timeline/edit outputs are reproducible projections of the package and selected approved
+assets.
 
-```bash
-forge-studios extract-boundaries --package episode.json --shot-id s02 --asset-id asset_clip --out-dir outputs/boundaries
-```
+## Repository boundary
 
-## Progressive agentic execution
-
-Manual and agentic modes call the same primitives. By default Director is conservative and stops at review/permission boundaries:
-
-```bash
-forge-studios auto --package episode.json --provider fal
-```
-
-Capabilities are granted independently rather than through one unsafe global switch:
-
-```bash
-forge-studios auto --package episode.json --provider fal \
-  --auto-approve-frames \
-  --allow-video \
-  --auto-approve-clips
-```
-
-See `AGENTS.md` for the manual/assisted/agentic policy Codex and other agents should follow.
-
-## Media providers and keys
-
-### fal.ai
-
-Local reference images and approved start/end frames can remain filesystem paths in EpisodePackage. The fal adapter uploads a local file only when a fal request needs a provider-accessible URL.
-
-Never commit keys:
-
-```bash
-forge-studios keys set fal
-```
-
-The adapter passes the stored key directly to the official fal client. Standard fal-client authentication (`FAL_KEY` or `fal auth login`) also remains compatible. `.env` files are ignored.
-
-Provider/model-specific request field names stay outside the episode contract. Current fal configuration includes `FAL_IMAGE_MODEL`, `FAL_IMAGE_REFERENCE_FIELD`, `FAL_VIDEO_MODEL`, `FAL_VIDEO_START_FRAME_FIELD`, `FAL_VIDEO_END_FRAME_FIELD`, and optional `FAL_VIDEO_REFERENCE_FIELD`.
-
-### OpenRouter image adapter
-
-`OpenRouterImageProvider` is available as a library adapter for a runtime implementing `generate_images`. It is intentionally runtime-injected rather than coupling public Forge Studios to private Forge Worlds/business-runtime code. The CLI currently exposes the built-in mock and fal providers; a caller/Codex integration can instantiate the OpenRouter adapter directly.
-
-## Filmmaker and timelines
-
-Create a deterministic edit-plan projection or basic FFmpeg render:
-
-```bash
-forge-studios edit-plan --package episode.json --out edit-plan.json
-forge-studios render --package episode.json --out episode.mp4
-```
-
-Project the EpisodePackage into an OpenTimelineIO timeline:
-
-```bash
-forge-studios timeline --package episode.json --out episode.otio --require-media
-```
-
-When MLT is installed, render the package-derived timeline through the transferred MLT backend:
-
-```bash
-forge-studios render-mlt --package episode.json --out episode.mp4 --profile atsc_1080p_30
-```
-
-Transferred Filmmaker modules also include declarative effects, still pan/zoom motion, credits, timeline conversion, and strict handling of unsupported backend constructs. Richer multi-track audio/transitions can continue to evolve without creating a second edit truth.
-
-## Data / Forge Researcher
-
-Every generation, approval/rejection, physical take, and final render emits JSONL telemetry to `.agenticforge/telemetry.jsonl` by default. Generation assets preserve prompt/reference/model/options plus relevant shot-design features and lineage. **Forge Researcher** can ingest those events and later combine them with publication outcomes and experiments.
-
-## Legacy mapping
-
-This repository supersedes the durable production behavior from `robo-director`, `robo-animator`, and `robo-filmmaker`. Physical Stage/robot behavior moved to Forge Puppeteer. See `docs/MIGRATION.md` for the transfer matrix and explicit disposition of adapted/retired behavior.
+Forge Studios supersedes useful execution behavior from older Director/Animator/
+Filmmaker repositories, but those historical package contracts are not supported here.
+See `docs/ARCHITECTURE.md` and `AGENTS.md` for the current rules.
