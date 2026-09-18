@@ -145,7 +145,9 @@ def _reference_input(package: EpisodePackage, shot, asset_id: str, *, start_id: 
         'route_transit':'approved route/transit geography and direction; use only when the route is visible',
         'approved_reusable_reference':'approved reusable design reference','canonical_reference':'canonical reusable design reference',
     }
-    return {'asset_id':asset_id,'production_role':production_role,'entity_id':asset.entity_id,'catalog_role':asset.role,'use':uses.get(production_role,'production reference')+role_suffix}
+    directed_use=(shot.reference_uses or {}).get(asset_id)
+    use=(directed_use.strip() if isinstance(directed_use,str) and directed_use.strip() else uses.get(production_role,'production reference'))
+    return {'asset_id':asset_id,'production_role':production_role,'entity_id':asset.entity_id,'catalog_role':asset.role,'use':use+role_suffix}
 
 
 def _reference_inputs(package: EpisodePackage, shot, reference_ids: list[str], *, start_id: str|None) -> list[dict]:
