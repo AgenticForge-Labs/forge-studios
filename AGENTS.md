@@ -109,3 +109,47 @@ When transferring legacy functionality:
 ## Secrets
 
 Never commit credentials, tokens, `.env`, provider secrets, or user-local config. Provider secrets must not appear in EpisodePackage or telemetry.
+
+## Operational notes (cheap production)
+
+These reflect the local setup; they are conventions, not contract rules.
+
+### Cheap vs normal generation — cost matters
+
+- `--mode cheap`: `fal-ai/flux-2/flash` for images at 768x432 (fal scales to
+  its nearest supported size), `fal-ai/ltx-2.3-22b/distilled` for video.
+- `--mode normal` (default): `fal-ai/flux-2-pro/edit` at 1080p. This is the
+  expensive path — do not use it to test plumbing or for routine cheap frames.
+- Use `--mode cheap` as a CLI **flag**, not an env var. The entrypoint
+  (`_extract_generation_mode` in `entrypoint.py`) forces `FORGE_STUDIOS_MODE`
+  to `normal` when the flag is absent, silently overriding any exported
+  `FORGE_STUDIOS_MODE=cheap`.
+
+### Generating a cheap storyboard / new boundary frames
+
+```
+.venv/bin/forge-studios storyboard --package <pkg> --out <out.storyboard.html> \
+  --generate --provider fal --mode cheap \
+  --asset-manifest <manifest> --asset-root <assets> \
+  --output-dir <assets>/forge-born/generated
+```
+
+- Confirm the log prints `mode=cheap` and `model=fal-ai/flux-2/flash` early —
+  a wrong-profile run spends real credits before it fails.
+- `skip_existing=True` (default): shots that already have a start-frame
+  candidate are NOT regenerated. To force new images, clear the package's
+  `start_frame` assets / `shot.start_frame_asset_ids` first.
+- The image-guide HTML is written automatically next to the storyboard
+  (`<out>.image-guide.html`).
+
+### Validate v3 packages here, not in forge-worlds
+
+`forge-worlds episode validate` has a v2 fall-through and rejects v3 packages.
+Validate `episode_package_v3` here: `.venv/bin/forge-studios validate <pkg>`.
+
+### Secrets
+
+FAL/OpenRouter keys come from `~/.config/agenticforge/credentials.json`
+(`LocalSecretStore`; env names `FAL_KEY` / `OPENROUTER_API_KEY`). The fal
+adapter reads `FAL_IMAGE_GENERATE_MODEL` / `FAL_IMAGE_EDIT_MODEL` /
+`FAL_VIDEO_MODEL` as overrides (not `FAL_IMAGE_MODEL`).
