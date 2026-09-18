@@ -67,6 +67,11 @@ class Shot(BaseModel):
 
     @model_validator(mode="after")
     def compile_internal_video_state(self) -> Shot:
+        unknown_reference_uses = set(self.reference_uses) - set(self.reference_asset_ids)
+        if unknown_reference_uses:
+            raise ValueError(
+                f"reference_uses names assets not present in reference_asset_ids: {sorted(unknown_reference_uses)}"
+            )
         mode = self.frame_plan_mode or (
             "start_and_end" if (self.end_frame_prompt or "").strip() else "start_only"
         )
