@@ -1,28 +1,22 @@
-# Static boundary camera contract (episode_package_v1 extension)
+# Boundary-frame execution
 
-Worlds owns static composition and motion intent. Studios compiles it without an LLM.
+Forge Worlds owns static composition and temporal story intent. Forge Studios executes
+that intent without an LLM.
 
-`shot.camera.start_frame` and `shot.camera.end_frame` optionally hold complete
-static camera objects (composition, angle, distance, focus, axis). Shot-wide
-`camera.movement` describes motion for video, not either image. The existing
-extensible camera schema and semantic fingerprint include these optional objects.
+The current shot contract supports two frame modes:
 
-When supplied, select the requested static object and the shared viewpoint. Do
-not merge a shot-wide tracking/jump composition into it. Without static objects,
-use the endpoint prompt and shared viewpoint/axis only; never invent a destination.
-Both validators reject a non-object boundary camera or temporal movement within it.
+- `start_only`: generate/approve a static start frame, then generate video from it.
+- `start_and_end`: generate/approve both static boundaries, then generate video between
+  them when the provider supports the required inputs.
 
-Image requests carry camera, constraints and ordered reference roles once. An end
-image's start reference establishes identity/geometry/state continuity but must
-not freeze the source pose/crop against an explicitly authored destination.
-This does not relax exact inherited video-start binding or human approval gates.
+Boundary prompts contain visible static composition only. Camera movement, action,
+dialogue, ambience, and synchronized effects belong in `video_prompt`.
 
-These changes were motivated by the actual Forge Born v9 guide: an ostensibly
-grounded start was supplied with “capturing the jump and landing in full motion”
-as its shared camera. Another POV request required eyes while forbidding the
-owner's face. The latter is a Worlds design contradiction, not a reason to add
-creative rewriting to Studios. See Worlds `docs/V9_PIPELINE_REVIEW.md` for evidence.
+Approved references and `reference_uses` remain authoritative when compiling image
+requests. An approved start frame used to create an end frame provides continuity
+evidence, but should not erase an explicitly authored destination composition.
 
-No paid generation was used to test this compiler change. Provider-free tests
-cover static selection, temporal exclusion, legacy fallback, rejection of invalid
-boundary cameras, actual reference ordering and unchanged video approval gates.
+Endpoint inheritance is explicit in the current contract and is never inferred merely
+because shots are adjacent.
+
+Provider-specific request fields remain adapter details.

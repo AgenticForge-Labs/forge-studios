@@ -1,56 +1,61 @@
 {
-  "package_version": "episode_package_v1",
+  "package_version": "episode_package",
   "production_id": "example_ep001",
   "episode_id": "example_ep001",
   "revision": 1,
   "world_id": "example_world",
-  "series_id": "example_series",
+  "show_id": "example_show",
   "title": "Awakening",
   "premise": "A small creature wakes in an unfamiliar place and begins to look around.",
-  "status": "draft",
+  "arc": "Confusion becomes cautious curiosity.",
+  "status": "prompt_ready",
   "target_duration_seconds": 12,
   "beats": [
     {
-      "id": "beat_awaken",
-      "summary": "The character becomes conscious.",
+      "beat_id": "beat_awaken",
       "purpose": "Establish awareness before explanation.",
-      "required": true,
-      "locked": true
+      "site_id": "place_ruin",
+      "duration_seconds": 12,
+      "narrative": "The creature wakes on the pedestal and looks around.",
+      "start_state": "The creature rests on the pedestal with eyes closed.",
+      "end_state": "The creature is awake and alert on the same pedestal."
     }
   ],
-  "dialogue": [],
-  "assets": [],
-  "scenes": [
+  "shots": [
     {
-      "scene_id": "scene_01",
-      "source_beat_ids": ["beat_awaken"],
-      "summary": "Awakening",
-      "shots": [
-        {
-          "shot_id": "shot_01",
-          "source_beat_ids": ["beat_awaken"],
-          "duration_seconds": 4,
-          "purpose": "Establish the sleeping character and location before movement.",
-          "visual": "A small creature sleeps on a central pedestal in an ancient open-air ruin.",
-          "execution_route": "animator",
-          "render_strategy": "still_motion",
-          "frame_plan": {"mode": "still"},
-          "storyboard_prompt": "Cinematic 3D storyboard frame. A small creature sleeps quietly on a central pedestal in an ancient open-air ruin. Wide enough to establish scale and surrounding architecture. No glow or active energy."
-        },
-        {
-          "shot_id": "shot_02",
-          "source_beat_ids": ["beat_awaken"],
-          "duration_seconds": 8,
-          "purpose": "Show the first moment of consciousness.",
-          "visual": "The creature slowly opens its eyes and slightly lifts its head while remaining on the pedestal.",
-          "execution_route": "animator",
-          "render_strategy": "generated_video",
-          "frame_plan": {"mode": "start_and_end"},
-          "start_frame_prompt": "Exact starting frame: the creature remains asleep on the pedestal, motionless except for subtle breathing. Preserve the established composition and scale.",
-          "end_frame_prompt": "Exact destination frame: the creature is awake with eyes open and head slightly raised, still on the pedestal. Preserve the same architecture, scale, camera direction, anatomy, and lighting.",
-          "video_prompt": "The creature slowly opens its eyes, pauses, then slightly lifts its head. Keep the movement small and natural. No jumping, turning, locomotion, architecture changes, or new objects."
-        }
-      ]
+      "shot_id": "beat_awaken",
+      "beat_id": "beat_awaken",
+      "duration_seconds": 12,
+      "site_id": "place_ruin",
+      "character_ids": ["character_creature"],
+      "reference_asset_ids": ["creature_reference", "ruin_reference"],
+      "reference_uses": {
+        "creature_reference": "Character identity, anatomy, proportions, materials and colors; do not copy the source pose or camera.",
+        "ruin_reference": "Primary site view and established spatial geometry for this shot."
+      },
+      "frame_plan_mode": "start_only",
+      "start_frame_prompt": "Wide objective view of the small creature resting on the central stone pedestal with eyes closed in the established open-air ruin under ordinary dawn light.",
+      "video_prompt": "From the supplied start image, the creature slowly opens its eyes, pauses, raises its head slightly, and looks around with cautious curiosity. Preserve the established site geometry, character anatomy, scale, and ordinary dawn lighting."
+    }
+  ],
+  "assets": [
+    {
+      "asset_id": "creature_reference",
+      "entity_id": "character_creature",
+      "kind": "reference_image",
+      "uri": "asset://creature-reference",
+      "status": "canon",
+      "authority": "locked",
+      "role": "canonical-reference"
+    },
+    {
+      "asset_id": "ruin_reference",
+      "entity_id": "place_ruin",
+      "kind": "reference_image",
+      "uri": "asset://ruin-reference",
+      "status": "canon",
+      "authority": "locked",
+      "role": "canonical-establishing"
     }
   ]
 }

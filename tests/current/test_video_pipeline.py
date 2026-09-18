@@ -54,13 +54,13 @@ def make_package(*, inherited: bool = True) -> EpisodePackage:
     )
 
 
-def test_public_json_remains_readable_v2_contract(tmp_path):
+def test_public_json_remains_current_contract(tmp_path):
     path = save_json(tmp_path / "package.json", make_package())
     raw = json.loads(path.read_text())
     assert raw["package_version"] == "episode_package"
     assert "scenes" not in raw
     serialized = path.read_text()
-    for forbidden in ("execution_route", "render_strategy", '"frame_plan":', "physical_take", "storyboard_asset"):
+    for forbidden in ("execution_route", "render_strategy", '"frame_plan":', "physical_take"):
         assert forbidden not in serialized
     loaded = load_package(path)
     assert loaded.shots[1].frame_plan.chain_from_shot_id == "wake"
@@ -121,19 +121,3 @@ def test_storyboard_is_built_from_boundary_pairs_only(tmp_path):
     assert "VIDEO MOTION / PERFORMANCE PROMPT" in text
     assert "Route:" not in text
     assert "Purpose:" not in text
-
-
-def test_legacy_v2_nonadjacent_handoff_is_still_loadable():
-    package = EpisodePackage(
-        package_version="episode_package",
-        production_id="p", episode_id="e", world_id="w", show_id="s",
-        title="Legacy", premise="Legacy", arc="Legacy", target_duration_seconds=60,
-        beats=[{"beat_id": "a"}, {"beat_id": "b"}, {"beat_id": "c"}],
-        shots=[
-            Shot(shot_id="a", beat_id="a", duration_seconds=20, site_id="x", frame_plan_mode="start_and_end", start_frame_prompt="A", end_frame_prompt="B", video_prompt="A becomes B over time."),
-            Shot(shot_id="b", beat_id="b", duration_seconds=20, site_id="x", frame_plan_mode="start_and_end", start_frame_prompt="B", end_frame_prompt="C", video_prompt="B becomes C over time."),
-            Shot(shot_id="c", beat_id="c", duration_seconds=20, site_id="x", frame_plan_mode="start_and_end", inherits_start_from_shot_id="a", start_frame_prompt="A", end_frame_prompt="D", video_prompt="A becomes D over time."),
-        ],
-    )
-    assert package.package_version == "episode_package"
-    assert package.shots[2].frame_plan.chain_from_shot_id == "a"

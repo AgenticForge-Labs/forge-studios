@@ -10,7 +10,7 @@ class FramePlan(BaseModel):
     """Internal Studios boundary state compiled from the public package."""
 
     model_config = ConfigDict(extra="forbid")
-    mode: Literal["start_only", "start_and_end", "chained_start"] = "start_only"
+    mode: Literal["start_only", "start_and_end"] = "start_only"
     chain_from_shot_id: str | None = None
     start_asset_id: str | None = None
     end_asset_id: str | None = None
@@ -59,11 +59,7 @@ class Shot(BaseModel):
     execution_route: Literal["animator"] = Field(default="animator", exclude=True)
     render_strategy: Literal["generated_video"] = Field(default="generated_video", exclude=True)
     frame_plan: FramePlan = Field(default_factory=FramePlan, exclude=True)
-    image_prompt: str | None = Field(default=None, exclude=True)
-    storyboard_prompt: str | None = Field(default=None, exclude=True)
     provider_options: dict[str, Any] = Field(default_factory=dict, exclude=True)
-    storyboard_asset_ids: list[str] = Field(default_factory=list, exclude=True)
-    approved_storyboard_asset_id: str | None = Field(default=None, exclude=True)
 
     @model_validator(mode="after")
     def compile_internal_video_state(self) -> Shot:
@@ -110,7 +106,6 @@ class AssetRecord(BaseModel):
     status: str = "candidate"
     authority: str = "generated"
     episode_id: str | None = None
-    scene_id: str | None = None
     shot_id: str | None = None
     attempt_id: str | None = None
     source_asset_ids: list[str] = Field(default_factory=list)
@@ -196,9 +191,8 @@ class GenerationAttempt(BaseModel):
     attempt_id: str = Field(default_factory=lambda: f"attempt_{uuid4().hex}")
     production_id: str
     episode_id: str
-    scene_id: str | None = None
     shot_id: str
-    role: Literal["storyboard", "start_frame", "end_frame", "video", "physical_take", "final_render"]
+    role: Literal["start_frame", "end_frame", "video", "physical_take", "final_render"]
     provider: str
     model: str | None = None
     prompt: str | None = None

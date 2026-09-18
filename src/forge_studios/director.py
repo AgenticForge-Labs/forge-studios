@@ -34,7 +34,7 @@ def plan_work(package: EpisodePackage) -> list[WorkItem]:
     work=[]
     chain_predecessors={}
     for candidate in package.shots:
-        if candidate.frame_plan.mode=='chained_start' or (candidate.frame_plan.mode=='start_and_end' and candidate.frame_plan.chain_from_shot_id):
+        if candidate.frame_plan.mode=='start_and_end' and candidate.frame_plan.chain_from_shot_id:
             try:
                 predecessor=predecessor_for(package,candidate)
             except FramePlanError:
@@ -43,7 +43,7 @@ def plan_work(package: EpisodePackage) -> list[WorkItem]:
     for shot in package.shots:
             if shot.execution_route == 'animator':
                 chain_predecessor = None
-                if shot.frame_plan.mode=='chained_start' or (shot.frame_plan.mode=='start_and_end' and shot.frame_plan.chain_from_shot_id):
+                if shot.frame_plan.mode=='start_and_end' and shot.frame_plan.chain_from_shot_id:
                     issues=validate_frame_plans(package,shot_id=shot.shot_id)
                     if issues:
                         work.append(WorkItem(shot.shot_id,'blocked',issues[0].message))

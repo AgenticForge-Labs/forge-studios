@@ -8,7 +8,7 @@ from forge_studios.storyboard import generate_boundary_candidates
 def package() -> EpisodePackage:
     return EpisodePackage.model_validate({
         "package_version": "episode_package",
-        "production_id": "test-v3",
+        "production_id": "test-current",
         "episode_id": "e1",
         "world_id": "forge-born",
         "show_id": "forge-born",
@@ -54,7 +54,7 @@ def package() -> EpisodePackage:
     })
 
 
-def test_v3_start_only_compiles_without_end_frame():
+def test_start_only_compiles_without_end_frame():
     p = package()
     shot = p.shots[0]
     assert shot.frame_plan.mode == "start_only"
@@ -63,7 +63,7 @@ def test_v3_start_only_compiles_without_end_frame():
     assert validate_frame_plans(p) == []
 
 
-def test_v2_shape_without_public_mode_infers_start_and_end():
+def test_package_without_public_mode_infers_start_and_end():
     raw = package().model_dump(mode="json", exclude_none=True, exclude_defaults=True)
     raw["package_version"] = "episode_package"
     shot = raw["shots"][0]

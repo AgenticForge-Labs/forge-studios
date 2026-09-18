@@ -7,7 +7,7 @@ from .frame_plan import FramePlanError, FramePlanIssue, predecessor_for, validat
 from .telemetry import TelemetrySink
 
 APPROVAL_FIELD={'start_frame':'approved_start_frame_asset_id','end_frame':'approved_end_frame_asset_id','clip':'approved_clip_asset_id'}
-PROMPT_FIELD={'image':'image_prompt','storyboard':'storyboard_prompt','start_frame':'start_frame_prompt','end_frame':'end_frame_prompt','video':'video_prompt'}
+PROMPT_FIELD={'start_frame':'start_frame_prompt','end_frame':'end_frame_prompt','video':'video_prompt'}
 
 def _record_review(asset: AssetRecord, *, decision: str, note: str|None=None, tags: list[str]|None=None, scores: dict[str,float]|None=None) -> dict[str,Any]:
     review={'decision':decision,'reviewed_at':datetime.now(timezone.utc).isoformat(),'note':note,'tags':tags or [],'scores':scores or {}}
@@ -32,7 +32,6 @@ def approve_asset(package: EpisodePackage, shot_id: str, kind: str, asset_id: st
     setattr(shot,APPROVAL_FIELD[kind],asset_id); asset.status='approved'; asset.authority='seeded'
     for successor in inheriting:
         bind_inherited_start_frame(package, successor.shot_id)
-    if kind=='storyboard': shot.status='storyboard_ready'
     review=_record_review(asset,decision='approved',note=note,tags=tags,scores=scores)
     (telemetry or TelemetrySink()).emit('asset.approved',production_id=package.production_id,episode_id=package.episode_id,shot_id=shot_id,asset_id=asset_id,role=kind,review=review,attempt_id=asset.attempt_id,provider=asset.provider,model=asset.model)
 
@@ -47,7 +46,7 @@ def bind_inherited_start_frame(package: EpisodePackage, shot_id: str) -> str:
     endpoint=predecessor.approved_end_frame_asset_id
     if not endpoint:
         raise FramePlanError(FramePlanIssue(
-            'CHAINED_START_ENDPOINT_MISSING',
+            'ENDPOINT_HANDOFF_ENDPOINT_MISSING',
             f"Shot {shot_id!r} waits for predecessor {predecessor.shot_id!r}'s approved end frame.",
             shot_id,predecessor.shot_id,
         ))
@@ -83,12 +82,14 @@ def register_asset(package: EpisodePackage, *, asset_id: str, uri: str, kind: st
 def add_reference(package: EpisodePackage, shot_id: str, asset_id: str) -> None:
     package.find_asset(asset_id)
     shot=package.find_shot(shot_id)
-    if asset_id not in shot.continuity_asset_ids:
-        shot.continuity_asset_ids.append(asset_id)
+    if asset_id not in shot.reference_asset_ids:
+        shot.reference_asset_ids.append(asset_id)
+    shot.continuity_asset_ids=list(shot.reference_asset_ids)
 
 def remove_reference(package: EpisodePackage, shot_id: str, asset_id: str) -> None:
     shot=package.find_shot(shot_id)
-    shot.continuity_asset_ids=[value for value in shot.continuity_asset_ids if value != asset_id]
+    shot.reference_asset_ids=[value for value in shot.reference_asset_ids if value != asset_id]
+    shot.continuity_asset_ids=list(shot.reference_asset_ids)
 
 def set_prompt(package: EpisodePackage, shot_id: str, role: str, text: str|None) -> None:
     shot=package.find_shot(shot_id)
@@ -100,4 +101,7 @@ def set_prompt(package: EpisodePackage, shot_id: str, role: str, text: str|None)
 
 def set_frame_plan(package: EpisodePackage, shot_id: str, mode: str, *, chain_from_shot_id: str|None=None, start_asset_id: str|None=None, end_asset_id: str|None=None) -> None:
     shot=package.find_shot(shot_id)
+    if mode not in {'start_only','start_and_end'}: raise ValueError(f'unsupported frame plan mode {mode!r}')
+    shot.frame_plan_mode=mode
+    shot.inherits_start_from_shot_id=chain_from_shot_id
     shot.frame_plan=FramePlan(mode=mode,chain_from_shot_id=chain_from_shot_id,start_asset_id=start_asset_id,end_asset_id=end_asset_id)
