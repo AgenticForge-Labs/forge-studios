@@ -29,6 +29,7 @@ class Shot(BaseModel):
     character_ids: list[str] = Field(default_factory=list)
     visible_entity_ids: list[str] = Field(default_factory=list)
     reference_asset_ids: list[str] = Field(default_factory=list)
+    reference_uses: dict[str, str] = Field(default_factory=dict)
     frame_plan_mode: Literal["start_only", "start_and_end"] | None = None
     inherits_start_from_shot_id: str | None = None
     start_frame_prompt: str
