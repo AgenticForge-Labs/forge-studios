@@ -1,8 +1,9 @@
-import json
-
-from forge_studios.animator.service import _reference_input, structured_image_prompt
+from forge_studios.animator import AnimatorService
+from forge_studios.animator.service import _reference_input
 from forge_studios.contracts import AssetRecord, EpisodePackage, Shot
 from forge_studios.frame_plan import validate_frame_plans
+from forge_studios.providers import MockProvider
+from forge_studios.telemetry import TelemetrySink
 from forge_studios.io import save_json
 
 
@@ -106,22 +107,23 @@ def test_reference_uses_must_target_bound_reference_assets():
         )
 
 
-def test_primary_site_reference_uses_preserve_mode_without_geometry_restatement():
+
+def test_studios_sends_package_prompt_verbatim(tmp_path):
     value = package()
-    value.shots[0].reference_uses = {
-        "ref": "Primary environment/base composition authority. Preserve reference pixels for fixed site geometry."
-    }
+    authored = (
+        "REFERENCE INPUTS\n"
+        "Image 1: primary environment/base composition authority.\n\n"
+        "START FRAME DELTA\n"
+        "Add exactly one character on the existing surface.\n\n"
+        "OUTPUT\nProduce one clean 16:9 frame."
+    )
+    value.shots[0].start_frame_prompt = authored
 
-    payload = json.loads(structured_image_prompt(
-        value,
-        value.shots[0],
-        "start_frame",
-        "REFERENCE AUTHORITY\nPreserve the supplied primary site image.\n\nSTART FRAME DELTA\nAdd one character on the existing surface.",
-        ["ref"],
-    ))
+    service = AnimatorService(
+        MockProvider(tmp_path / "media"),
+        TelemetrySink(tmp_path / "telemetry.jsonl"),
+    )
+    service.generate(value, "one", role="start_frame")
 
-    assert payload["render_mode"] == "preserve_reference"
-    assert payload["primary_environment_reference"] == "ref"
-    assert "camera" not in payload
-    assert "composition_constraints" not in payload
-    assert payload["instruction"].startswith("REFERENCE AUTHORITY")
+    attempt = value.trace["generation_attempts"][-1]
+    assert attempt["prompt"] == authored
