@@ -140,17 +140,48 @@ def _boundary_inputs(shot, *, start_id: str|None, end_id: str|None) -> list[dict
     return values
 
 
+def _primary_site_reference_id(package: EpisodePackage, shot, reference_ids: list[str]) -> str | None:
+    """Return the authored primary environment reference without relying on filenames."""
+
+    for asset_id in reference_ids:
+        directed=(shot.reference_uses or {}).get(asset_id)
+        if isinstance(directed,str) and directed.strip().casefold().startswith("primary"):
+            return asset_id
+    for asset_id in reference_ids:
+        try:
+            asset=package.find_asset(asset_id)
+        except KeyError:
+            continue
+        if asset.kind=="reference_image" and asset.entity_id==shot.site_id:
+            return asset_id
+    return None
+
+
 def structured_image_prompt(package: EpisodePackage, shot, role: str, instruction: str, reference_ids: list[str], *, start_id: str|None=None) -> str:
-    """Compile provider input from already-authored production fields, never raw story prose."""
+    """Compile provider input without re-describing an approved environment reference."""
     allow_text=bool((shot.provider_options or {}).get('allow_text'))
     output=('one clean 16:9 frame; no collage, borders, or motion blur' if allow_text else 'one clean 16:9 frame; no collage, labels, captions, subtitles, speech bubbles, readable text, letters, numbers, logos, watermarks, UI, borders, or motion blur')
+    primary_site_id=_primary_site_reference_id(package,shot,reference_ids)
     payload={
-        'task':'generate one production image','frame_role':role,'instruction':instruction,'camera':boundary_camera(shot, role),
-        'composition_constraints':{'must_show':_constraint_values(shot,'must_show'),'must_not_show':_constraint_values(shot,'must_not_show')},
+        'task':'edit one established production frame' if primary_site_id else 'generate one production image',
+        'frame_role':role,
+        'render_mode':'preserve_reference' if primary_site_id else 'synthesize',
+        'instruction':instruction,
         'reference_images':_reference_inputs(package,shot,reference_ids,start_id=start_id),
-        'continuity':{'preserve_character_identity':True,'preserve_established_site_geometry':True,'preserve_scale_materials_lighting_and_fixed_props':True,'reference_images_are_design_authority_not_default_pose':True},
         'output':output,
     }
+    if primary_site_id:
+        payload['primary_environment_reference']=primary_site_id
+    else:
+        payload['camera']=boundary_camera(shot, role)
+        payload['composition_constraints']={
+            'must_show':_constraint_values(shot,'must_show'),
+            'must_not_show':_constraint_values(shot,'must_not_show'),
+        }
+        payload['continuity']={
+            'preserve_character_identity':True,
+            'reference_images_are_design_authority_not_default_pose':True,
+        }
     return json.dumps(payload,ensure_ascii=False,indent=2)
 
 
