@@ -23,6 +23,7 @@ class FalImageModelProfile:
     reference_shape: str = "list"
     max_references: int | None = None
     min_dimension: int | None = None
+    max_prompt_chars: int | None = None
 
 
 _DEFAULT_IMAGE_PROFILE = FalImageModelProfile()
@@ -32,7 +33,9 @@ _IMAGE_MODEL_PROFILES = {
     "fal-ai/flux-2/flash": FalImageModelProfile("image_urls", "list", min_dimension=512),
     "fal-ai/flux-2/flash/edit": FalImageModelProfile("image_urls", "list", 4, min_dimension=512),
     "fal-ai/flux-2-pro/edit": FalImageModelProfile("image_urls", "list"),
-    "fal-ai/kling-image/o3/image-to-image": FalImageModelProfile("image_urls", "list", 10),
+    "fal-ai/kling-image/o3/image-to-image": FalImageModelProfile(
+        "image_urls", "list", 10, max_prompt_chars=2500
+    ),
     "openai/gpt-image-2/edit": FalImageModelProfile("image_urls", "list", 16),
 }
 _FAST_VIDEO_DURATIONS = {6, 8, 10, 12, 14, 16, 18, 20}
@@ -184,6 +187,13 @@ class FalProvider:
 
     def _apply_profile_defaults(self, request: MediaRequest, model: str, payload: dict[str, Any]) -> None:
         if request.kind == 'image':
+            image_profile = image_model_profile(model)
+            prompt = str(payload.get('prompt') or '')
+            if image_profile.max_prompt_chars is not None and len(prompt) > image_profile.max_prompt_chars:
+                raise ValueError(
+                    f'Fal model {model!r} accepts prompts up to {image_profile.max_prompt_chars} characters; '
+                    f'received {len(prompt)}. Shorten the authored prompt upstream in Forge Worlds.'
+                )
             if 'image_size' not in payload and self.profile.image.width and self.profile.image.height:
                 width,height=resolve_supported_image_size(model,self.profile.image.width,self.profile.image.height)
                 payload['image_size']={'width':width,'height':height}
@@ -237,6 +247,8 @@ class FalProvider:
                 'reference_field':os.getenv('FAL_IMAGE_REFERENCE_FIELD') or profile.reference_field,
                 'reference_shape':profile.reference_shape,
                 'max_references':profile.max_references,
+                'max_prompt_chars':profile.max_prompt_chars,
+                'prompt_chars':len(str(payload.get('prompt') or '')),
                 'image_target_size':{'width':self.profile.image.width,'height':self.profile.image.height} if self.profile.image.width and self.profile.image.height else None,
                 'image_size':payload.get('image_size'),
                 'safety_tolerance':payload.get('safety_tolerance','provider-default'),
