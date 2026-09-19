@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import math
 import os
-import re
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -316,7 +315,7 @@ class FalProvider:
         model=self.model_for(request)
         stored_key=self.local_config.resolve('fal')
         client=fal_client.SyncClient(key=stored_key) if stored_key else fal_client.SyncClient()
-        payload: dict[str,Any]={'prompt':provider_safe_image_prompt(request.prompt) if request.kind=='image' else request.prompt,**request.options}
+        payload: dict[str,Any]={'prompt':request.prompt,**request.options}
         try:
             self._apply_profile_defaults(request,model,payload)
         except Exception as exc:
