@@ -51,6 +51,21 @@ Animator compiles authored shot intent into provider requests. A shot supplies:
 
 Provider adapters own transport URLs and provider-specific parameters.
 
+## Image prompt compilation
+
+Forge Studios distinguishes an established environment edit from free synthesis.
+
+If a primary site reference is bound, the provider request uses
+`render_mode=preserve_reference`. The reference image supplies fixed environment
+composition and geometry; Studios passes the already-compiled frame delta prompt and
+ordered reference roles without re-stating camera axes or site-wide constraint lists.
+
+If there is no primary site reference, `render_mode=synthesize` may include explicit
+camera and composition constraints.
+
+This keeps world/map semantics upstream and minimizes provider-facing prose once a
+canonical view has been selected.
+
 ## Boundary frames
 
 `start_only` uses one approved static start image. `start_and_end` additionally uses

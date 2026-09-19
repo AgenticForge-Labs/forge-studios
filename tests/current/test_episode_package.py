@@ -1,4 +1,6 @@
-from forge_studios.animator.service import _reference_input
+import json
+
+from forge_studios.animator.service import _reference_input, structured_image_prompt
 from forge_studios.contracts import AssetRecord, EpisodePackage, Shot
 from forge_studios.frame_plan import validate_frame_plans
 from forge_studios.io import save_json
@@ -32,7 +34,7 @@ def package():
                 video_prompt="Ember walks from the altar to the southern opening while the objective camera tracks beside him.",
             ),
         ],
-        assets=[AssetRecord(asset_id="ref", kind="reference_image", uri="/tmp/ref.png", status="canon")],
+        assets=[AssetRecord(asset_id="ref", entity_id="place", kind="reference_image", uri="/tmp/ref.png", status="canon")],
     )
 
 
@@ -102,3 +104,24 @@ def test_reference_uses_must_target_bound_reference_assets():
             start_frame_prompt="A settled frame.",
             video_prompt="A short action.",
         )
+
+
+def test_primary_site_reference_uses_preserve_mode_without_geometry_restatement():
+    value = package()
+    value.shots[0].reference_uses = {
+        "ref": "Primary environment/base composition authority. Preserve reference pixels for fixed site geometry."
+    }
+
+    payload = json.loads(structured_image_prompt(
+        value,
+        value.shots[0],
+        "start_frame",
+        "REFERENCE AUTHORITY\nPreserve the supplied primary site image.\n\nSTART FRAME DELTA\nAdd one character on the existing surface.",
+        ["ref"],
+    ))
+
+    assert payload["render_mode"] == "preserve_reference"
+    assert payload["primary_environment_reference"] == "ref"
+    assert "camera" not in payload
+    assert "composition_constraints" not in payload
+    assert payload["instruction"].startswith("REFERENCE AUTHORITY")
