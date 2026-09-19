@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import math
 import os
-import re
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -64,28 +63,6 @@ def resolve_supported_image_size(model: str, width: int, height: int) -> tuple[i
         math.ceil(minimum/9),
     )
     return 16*unit,9*unit
-
-
-def provider_safe_image_prompt(prompt: str) -> str:
-    """Apply a final conservative wording pass before sending text to fal."""
-    replacements = (
-        (r"\bawake but still lying on\b", "awake and settled on"),
-        (r"\blying on\b", "resting on"),
-        (r"\blies on\b", "rests on"),
-        (r"\bunconscious\b", "in a calm dormant state"),
-        (r"\bmalformed anatomy\b", "an inconsistent silhouette"),
-        (r"\bbipedal or (?:an )?malformed\b", "inconsistent"),
-    )
-    result = prompt
-    for pattern, replacement in replacements:
-        result = re.sub(pattern, replacement, result, flags=re.IGNORECASE)
-    result = re.sub(
-        r"\b(?:do not|never)\s+(?:let|make|allow)\s+(?:video\s+)?generation\s+infer\s+[^.]+\.",
-        "Keep the established four-legged silhouette.",
-        result,
-        flags=re.IGNORECASE,
-    )
-    return result
 
 
 def _classify_fal_failure(exc: Exception) -> str:
@@ -316,7 +293,7 @@ class FalProvider:
         model=self.model_for(request)
         stored_key=self.local_config.resolve('fal')
         client=fal_client.SyncClient(key=stored_key) if stored_key else fal_client.SyncClient()
-        payload: dict[str,Any]={'prompt':provider_safe_image_prompt(request.prompt) if request.kind=='image' else request.prompt,**request.options}
+        payload: dict[str,Any]={'prompt':request.prompt,**request.options}
         try:
             self._apply_profile_defaults(request,model,payload)
         except Exception as exc:
