@@ -113,6 +113,26 @@ and human work. Before editing:
 Current contract tests live under `tests/current/`. Historical scene-package tests
 should not be restored.
 
+## Asset storage — where the bytes live
+
+The manifest is `assets/forge-born.yaml` in the sibling `forge-born` repo. The actual
+media bytes live in the sibling `forge-assets/` directory (the local Directus
+stand-in), NOT inside `forge-born/assets/`:
+
+- Canonical references & generated start frames: `<repo-root>/forge-assets/*.png` and
+  `<repo-root>/forge-assets/forge-born/generated/`. Bytes are not Git-versioned.
+
+Every CLI call that resolves or generates media must pass:
+
+- `--asset-manifest <forge-born>/assets/forge-born.yaml`
+- `--asset-root <repo-root>/forge-assets` — the directory that actually contains the
+  `storage_key` files. Pointing this at `forge-born/assets/` will fail providers with
+  `file_download_error` (FAL can't fetch a path that doesn't resolve), so double-check
+  it before any paid generation. (See `forge-born/assets/README.md`.)
+
+Never derive asset identity from a filename or provider URL; `logical_key` and
+`asset_id` are the stable keys. Generated media are candidates until approved.
+
 ## Telemetry / Researcher boundary
 
 Collect operational facts only: production/episode/shot/attempt/asset IDs, prompts,
