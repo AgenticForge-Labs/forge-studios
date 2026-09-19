@@ -92,8 +92,11 @@ policy, fallback prompt text, or any other semantic content inside Studios. If a
 required package prompt is missing, fail loudly and send the correction upstream to
 Forge Worlds rather than inventing one.
 
-Provider adapters may translate transport/schema details required by an API, but they
-must not change creative meaning.
+Provider adapters may translate transport/schema details required by an API, including
+field names, uploaded asset URLs, or syntax-only reference aliases. They must not rewrite,
+sanitize, paraphrase, append, or otherwise change creative meaning. Provider-specific
+content-policy wording must be fixed upstream in Forge Worlds, not silently rewritten in
+Studios.
 
 
 ## Frame policy
