@@ -51,20 +51,28 @@ Animator compiles authored shot intent into provider requests. A shot supplies:
 
 Provider adapters own transport URLs and provider-specific parameters.
 
-## Image prompt compilation
+## Prompt execution
 
-Forge Studios distinguishes an established environment edit from free synthesis.
+Forge Worlds (or another package author) supplies complete provider-facing shot prompts
+inside the EpisodePackage. Forge Studios does not perform semantic prompt compilation.
 
-If a primary site reference is bound, the provider request uses
-`render_mode=preserve_reference`. The reference image supplies fixed environment
-composition and geometry; Studios passes the already-compiled frame delta prompt and
-ordered reference roles without re-stating camera axes or site-wide constraint lists.
+Studios' job is execution:
 
-If there is no primary site reference, `render_mode=synthesize` may include explicit
-camera and composition constraints.
+```text
+package prompt + ordered asset IDs + provider options
+        ↓
+transport adaptation only
+        ↓
+provider API
+```
 
-This keeps world/map semantics upstream and minimizes provider-facing prose once a
-canonical view has been selected.
+Transport adaptation includes resolving local assets to provider-accessible inputs,
+binding approved start/end boundary media, mapping duration/model/options, and recording
+provenance. It does not include adding camera prose, site geometry, visual constraints,
+reference-role prose, audio policy, or fallback creative instructions.
+
+A missing prompt is a package error and is returned upstream rather than repaired here.
+
 
 ## Boundary frames
 
