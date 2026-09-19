@@ -65,28 +65,6 @@ def resolve_supported_image_size(model: str, width: int, height: int) -> tuple[i
     return 16*unit,9*unit
 
 
-def provider_safe_image_prompt(prompt: str) -> str:
-    """Apply a final conservative wording pass before sending text to fal."""
-    replacements = (
-        (r"\bawake but still lying on\b", "awake and settled on"),
-        (r"\blying on\b", "resting on"),
-        (r"\blies on\b", "rests on"),
-        (r"\bunconscious\b", "in a calm dormant state"),
-        (r"\bmalformed anatomy\b", "an inconsistent silhouette"),
-        (r"\bbipedal or (?:an )?malformed\b", "inconsistent"),
-    )
-    result = prompt
-    for pattern, replacement in replacements:
-        result = re.sub(pattern, replacement, result, flags=re.IGNORECASE)
-    result = re.sub(
-        r"\b(?:do not|never)\s+(?:let|make|allow)\s+(?:video\s+)?generation\s+infer\s+[^.]+\.",
-        "Keep the established four-legged silhouette.",
-        result,
-        flags=re.IGNORECASE,
-    )
-    return result
-
-
 def _classify_fal_failure(exc: Exception) -> str:
     text=f'{type(exc).__name__}: {exc}'.casefold()
     if any(term in text for term in ('content_policy', 'content policy', 'safety checker', 'safety violation', 'nsfw')):
