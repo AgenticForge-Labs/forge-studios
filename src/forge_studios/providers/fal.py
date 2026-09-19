@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 import os
+import re
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -172,6 +173,18 @@ class FalProvider:
         return value
 
     @staticmethod
+    def _provider_prompt(model: str, prompt: str) -> str:
+        """Translate syntax-only reference aliases without changing prompt meaning."""
+        if model.startswith("fal-ai/kling-image/"):
+            return re.sub(
+                r"@image(\d+)",
+                lambda match: f"@Image{match.group(1)}",
+                prompt,
+                flags=re.IGNORECASE,
+            )
+        return prompt
+
+    @staticmethod
     def _image_reference_payload(model: str, references: list[str]) -> dict[str, Any]:
         if not references:
             return {}
@@ -300,7 +313,12 @@ class FalProvider:
         model=self.model_for(request)
         stored_key=self.local_config.resolve('fal')
         client=fal_client.SyncClient(key=stored_key) if stored_key else fal_client.SyncClient()
-        payload: dict[str,Any]={'prompt':request.prompt,**request.options}
+        provider_prompt = (
+            self._provider_prompt(model, request.prompt)
+            if request.kind == 'image'
+            else request.prompt
+        )
+        payload: dict[str,Any]={'prompt':provider_prompt,**request.options}
         try:
             self._apply_profile_defaults(request,model,payload)
         except Exception as exc:
