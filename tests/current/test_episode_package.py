@@ -3,6 +3,7 @@ from forge_studios.animator.service import _reference_input
 from forge_studios.contracts import AssetRecord, EpisodePackage, Shot
 from forge_studios.frame_plan import validate_frame_plans
 from forge_studios.providers import MockProvider
+from forge_studios.providers.fal import FalProvider
 from forge_studios.telemetry import TelemetrySink
 from forge_studios.io import save_json
 
@@ -127,3 +128,17 @@ def test_studios_sends_package_prompt_verbatim(tmp_path):
 
     attempt = value.trace["generation_attempts"][-1]
     assert attempt["prompt"] == authored
+
+
+def test_fal_reference_transport_does_not_append_prompt_text():
+    payload = FalProvider._image_reference_payload(
+        "fal-ai/kling-image/o3/image-to-image",
+        ["https://example.test/one.png", "https://example.test/two.png"],
+    )
+
+    assert payload == {
+        "image_urls": [
+            "https://example.test/one.png",
+            "https://example.test/two.png",
+        ]
+    }
