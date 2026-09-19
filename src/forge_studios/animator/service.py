@@ -1,5 +1,5 @@
 from __future__ import annotations
-import json, time
+import time
 from itertools import combinations
 from uuid import uuid4
 from ..contracts import AssetRecord, EpisodePackage, GenerationAttempt
@@ -9,46 +9,6 @@ from ..telemetry import TelemetrySink
 
 ROLE_KIND={'start_frame':'start_frame','end_frame':'end_frame','video':'generated_clip'}
 ROLE_PROMPT={'start_frame':'start_frame_prompt','end_frame':'end_frame_prompt','video':'video_prompt'}
-
-def boundary_camera(shot, role: str) -> dict:
-    """Compile authored static intent; never invent a destination camera pose."""
-    camera = dict(shot.camera)
-    specific = camera.pop(role, None) if role in {'start_frame','end_frame'} else None
-    camera.pop('start_frame', None)
-    camera.pop('end_frame', None)
-    if role in {'start_frame','end_frame'}:
-        camera.pop('movement', None)
-        if isinstance(specific, dict):
-            return {**({'viewpoint': camera['viewpoint']} if 'viewpoint' in camera else {}), **specific}
-        return {key: value for key, value in camera.items() if key in {'viewpoint','axis'}}
-    return camera
-
-def _camera_summary(shot, role: str='start_frame') -> str:
-    camera = boundary_camera(shot, role)
-    return '; '.join(
-        f'{key}: {camera[key]}' for key in ('shot_type','framing','distance','axis','composition')
-        if isinstance(camera.get(key),str) and camera[key].strip()
-    )
-
-def _constraint_values(shot, key: str) -> list[str]:
-    constraints=shot.visual_constraints if isinstance(shot.visual_constraints,dict) else {}
-    values=constraints.get(key)
-    if not isinstance(values,list): return []
-    return [str(value).strip() for value in values if str(value).strip()]
-
-def production_prompt_suffix(shot, role: str) -> str:
-    """Add deterministic EpisodePackage grounding without creatively rewriting the shot."""
-    lines=[]
-    camera=_camera_summary(shot, role)
-    if camera: lines.append(f'Camera must preserve: {camera}.')
-    must_show=_constraint_values(shot,'must_show')
-    if must_show: lines.append('Required visible elements: '+'; '.join(must_show)+'.')
-    must_not_show=_constraint_values(shot,'must_not_show')
-    if must_not_show: lines.append('Forbidden additions or substitutions: '+'; '.join(must_not_show)+'.')
-    if shot.reference_asset_ids:
-        lines.append('Treat supplied reusable references according to their explicit production roles; identity/site design references do not dictate the source pose or camera angle.')
-    if not lines: return ''
-    return '\n\nProduction constraints:\n'+'\n'.join(f'- {line}' for line in lines)
 
 def assert_generation_preflight(package: EpisodePackage) -> None:
     """Keep every media entrypoint from spending work on a known blocked package."""
@@ -140,51 +100,6 @@ def _boundary_inputs(shot, *, start_id: str|None, end_id: str|None) -> list[dict
     return values
 
 
-def _primary_site_reference_id(package: EpisodePackage, shot, reference_ids: list[str]) -> str | None:
-    """Return the authored primary environment reference without relying on filenames."""
-
-    for asset_id in reference_ids:
-        directed=(shot.reference_uses or {}).get(asset_id)
-        if isinstance(directed,str) and directed.strip().casefold().startswith("primary"):
-            return asset_id
-    for asset_id in reference_ids:
-        try:
-            asset=package.find_asset(asset_id)
-        except KeyError:
-            continue
-        if asset.kind=="reference_image" and asset.entity_id==shot.site_id:
-            return asset_id
-    return None
-
-
-def structured_image_prompt(package: EpisodePackage, shot, role: str, instruction: str, reference_ids: list[str], *, start_id: str|None=None) -> str:
-    """Compile provider input without re-describing an approved environment reference."""
-    allow_text=bool((shot.provider_options or {}).get('allow_text'))
-    output=('one clean 16:9 frame; no collage, borders, or motion blur' if allow_text else 'one clean 16:9 frame; no collage, labels, captions, subtitles, speech bubbles, readable text, letters, numbers, logos, watermarks, UI, borders, or motion blur')
-    primary_site_id=_primary_site_reference_id(package,shot,reference_ids)
-    payload={
-        'task':'edit one established production frame' if primary_site_id else 'generate one production image',
-        'frame_role':role,
-        'render_mode':'preserve_reference' if primary_site_id else 'synthesize',
-        'instruction':instruction,
-        'reference_images':_reference_inputs(package,shot,reference_ids,start_id=start_id),
-        'output':output,
-    }
-    if primary_site_id:
-        payload['primary_environment_reference']=primary_site_id
-    else:
-        payload['camera']=boundary_camera(shot, role)
-        payload['composition_constraints']={
-            'must_show':_constraint_values(shot,'must_show'),
-            'must_not_show':_constraint_values(shot,'must_not_show'),
-        }
-        payload['continuity']={
-            'preserve_character_identity':True,
-            'reference_images_are_design_authority_not_default_pose':True,
-        }
-    return json.dumps(payload,ensure_ascii=False,indent=2)
-
-
 def _provider_generation_settings(provider) -> dict:
     getter=getattr(provider,'generation_settings',None)
     if not callable(getter): return {}
@@ -229,7 +144,9 @@ class AnimatorService:
         if issues: raise FramePlanError(issues[0])
         if role=='video': _require_approved_video_boundaries(package,shot)
         specific=getattr(shot,ROLE_PROMPT[role],None)
-        prompt=specific or self._default_prompt(shot,role)
+        if not isinstance(specific,str) or not specific.strip():
+            raise ValueError(f'Shot {shot_id!r} has no authored {ROLE_PROMPT[role]}; Forge Studios executes package prompts and does not synthesize fallbacks.')
+        prompt=specific.strip()
         continuity_assets=_validate_continuity_references(package,shot); reference_ids=[asset.asset_id for asset in continuity_assets]
         start_id=shot.approved_start_frame_asset_id or shot.frame_plan.start_asset_id; end_id=shot.approved_end_frame_asset_id or shot.frame_plan.end_asset_id
         if shot.frame_plan.mode=='start_and_end' and shot.frame_plan.chain_from_shot_id:
@@ -244,10 +161,7 @@ class AnimatorService:
             raise ValueError(f'Shot {shot_id!r} needs an approved start frame before generating its end frame.')
         if role=='end_frame' and start_id and start_id not in reference_ids:
             reference_ids.append(start_id)
-        if role == 'video':
-            prompt += production_prompt_suffix(shot,role)
         reference_inputs=_reference_inputs(package,shot,reference_ids,start_id=start_id); boundary_inputs=_boundary_inputs(shot,start_id=start_id,end_id=end_id)
-        if role!='video': prompt=structured_image_prompt(package,shot,role,prompt,reference_ids,start_id=start_id)
         refs=[self._asset_uri(package,a) for a in reference_ids]
         request=MediaRequest(kind='video' if role=='video' else 'image',shot_id=shot_id,role=role,prompt=prompt,reference_assets=tuple(refs),start_frame_asset=self._asset_uri(package,start_id) if start_id else None,end_frame_asset=self._asset_uri(package,end_id) if end_id else None,duration_seconds=shot.duration_seconds if role=='video' else None,options=dict(shot.provider_options))
         provider_generation=_provider_generation_settings(self.provider)
@@ -278,10 +192,3 @@ class AnimatorService:
     def _asset_uri(package: EpisodePackage, asset_id: str|None) -> str:
         if not asset_id: raise KeyError('missing asset id')
         return package.find_asset(asset_id).uri
-    @staticmethod
-    def _default_prompt(shot, role: str) -> str:
-        camera='Camera: '+json.dumps(shot.camera,ensure_ascii=False) if shot.camera else ''; constraints='Visual constraints: '+json.dumps(shot.visual_constraints,ensure_ascii=False) if shot.visual_constraints else ''; parts=[value for value in (camera,constraints) if value]
-        if role=='video': parts.append('Describe the temporal performance from the approved start frame; preserve an approved end frame only when one is explicitly supplied.')
-        elif role=='start_frame': parts.append('Create the exact settled starting composition for the shot from the structured production constraints and references.')
-        elif role=='end_frame': parts.append('Create the exact settled destination composition for the shot from the structured production constraints and references.')
-        return '\n\n'.join(parts)
