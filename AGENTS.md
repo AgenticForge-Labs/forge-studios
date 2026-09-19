@@ -73,24 +73,28 @@ Animator owns synthetic-media acquisition and provider compilation.
   and cost when available.
 - Generated media are candidates until approved.
 
-## Preserve-reference image compilation
+## Package execution boundary
 
-When a shot has an authored primary site reference, image generation runs in
-`preserve_reference` mode. The public frame prompt already contains deterministic
-reference authority plus the authored frame delta. Studios must not then re-add camera
-axes, compass semantics, whole-site `must_show` lists, or long visual-constraint prose
-that causes the provider to reconstruct the environment.
+Forge Studios does not compose, rewrite, expand, summarize, or semantically augment
+shot prompts. The `EpisodePackage` is already the authored execution contract.
 
-In preserve-reference mode:
+For every media role:
 
-- the primary site image is the environment/base-composition authority;
-- fixed geometry, terrain, viewpoint, scale, and depth relationships come from pixels;
-- character references are identity/anatomy/material authority, not default pose;
-- supporting site references remain secondary;
-- only the authored frame delta may request bounded changes, including crop/zoom.
+- send `start_frame_prompt`, `end_frame_prompt`, or `video_prompt` exactly as supplied;
+- preserve `reference_asset_ids` order;
+- resolve asset IDs to provider-accessible files/URLs;
+- map approved start/end boundary assets into provider transport fields;
+- apply explicit provider/model/options settings;
+- record attempts, provenance, diagnostics, cost, and outputs.
 
-Use synthesis-style camera/composition fields only when no primary environment reference
-exists. Do not turn semantic world reasoning back into provider-facing environment prose.
+Do not append camera prose, visual constraints, reference-role explanations, audio
+policy, fallback prompt text, or any other semantic content inside Studios. If a
+required package prompt is missing, fail loudly and send the correction upstream to
+Forge Worlds rather than inventing one.
+
+Provider adapters may translate transport/schema details required by an API, but they
+must not change creative meaning.
+
 
 ## Frame policy
 
