@@ -3,6 +3,7 @@ from forge_studios.animator.service import _reference_input
 from forge_studios.contracts import AssetRecord, EpisodePackage, Shot
 from forge_studios.frame_plan import validate_frame_plans
 from forge_studios.providers import MockProvider
+from forge_studios.providers.base import MediaRequest
 from forge_studios.providers.fal import FalProvider
 from forge_studios.telemetry import TelemetrySink
 from forge_studios.io import save_json
@@ -112,11 +113,11 @@ def test_reference_uses_must_target_bound_reference_assets():
 def test_studios_sends_package_prompt_verbatim(tmp_path):
     value = package()
     authored = (
-        "REFERENCE INPUTS\n"
-        "Image 1: primary environment/base composition authority.\n\n"
-        "START FRAME DELTA\n"
+        "REFERENCES\n"
+        "@Image1: base composition; preserve its geometry and viewpoint.\n\n"
+        "EDIT\n"
         "Add exactly one character on the existing surface.\n\n"
-        "OUTPUT\nProduce one clean 16:9 frame."
+        "OUTPUT\nSingle clean 16:9 cinematic frame. No text, UI, or collage."
     )
     value.shots[0].start_frame_prompt = authored
 
@@ -142,3 +143,26 @@ def test_fal_reference_transport_does_not_append_prompt_text():
             "https://example.test/two.png",
         ]
     }
+
+
+def test_fal_kling_prompt_limit_fails_before_provider_call():
+    import pytest
+
+    provider = FalProvider(
+        image_edit_model="fal-ai/kling-image/o3/image-to-image",
+    )
+    request = MediaRequest(
+        kind="image",
+        shot_id="one",
+        role="start_frame",
+        prompt="x" * 2501,
+        reference_assets=("https://example.test/one.png",),
+    )
+    model = provider.model_for(request)
+
+    with pytest.raises(ValueError, match="up to 2500 characters"):
+        provider._apply_profile_defaults(
+            request,
+            model,
+            {"prompt": request.prompt},
+        )
