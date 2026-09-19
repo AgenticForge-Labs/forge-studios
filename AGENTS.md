@@ -98,6 +98,13 @@ sanitize, paraphrase, append, or otherwise change creative meaning. Provider-spe
 content-policy wording must be fixed upstream in Forge Worlds, not silently rewritten in
 Studios.
 
+Current Worlds frame prompts use ordered lowercase `@imageN` aliases. Preserve their
+ordering and meaning. A provider adapter may translate only the documented alias syntax,
+such as lowercase FLUX `@imageN` to Kling `@ImageN`, while preserving the rest of the
+prompt exactly. Provider profiles may
+enforce hard API limits such as maximum reference count or prompt characters before a
+paid request, but must fail rather than truncate or rewrite the authored prompt.
+
 
 ## Frame policy
 
