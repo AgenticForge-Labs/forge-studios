@@ -114,7 +114,7 @@ def test_studios_sends_package_prompt_verbatim(tmp_path):
     value = package()
     authored = (
         "REFERENCES\n"
-        "@Image1: base composition; preserve its geometry and viewpoint.\n\n"
+        "@image1: base composition; preserve its geometry and viewpoint.\n\n"
         "EDIT\n"
         "Add exactly one character on the existing surface.\n\n"
         "OUTPUT\nSingle clean 16:9 cinematic frame. No text, UI, or collage."
@@ -166,3 +166,15 @@ def test_fal_kling_prompt_limit_fails_before_provider_call():
             model,
             {"prompt": request.prompt},
         )
+
+
+def test_fal_translates_only_reference_alias_casing_for_kling():
+    authored = "REFERENCES\n@image1: character identity.\n@image2: base composition.\n\nEDIT\nMove the character."
+    assert FalProvider._provider_prompt(
+        "fal-ai/flux-2-pro/edit",
+        authored,
+    ) == authored
+    assert FalProvider._provider_prompt(
+        "fal-ai/kling-image/o3/image-to-image",
+        authored,
+    ) == authored.replace("@image1", "@Image1").replace("@image2", "@Image2")
