@@ -22,7 +22,6 @@ class FalImageModelProfile:
     reference_field: str = "image_urls"
     reference_shape: str = "list"
     max_references: int | None = None
-    numbered_prompt_references: bool = False
     min_dimension: int | None = None
 
 
@@ -33,7 +32,7 @@ _IMAGE_MODEL_PROFILES = {
     "fal-ai/flux-2/flash": FalImageModelProfile("image_urls", "list", min_dimension=512),
     "fal-ai/flux-2/flash/edit": FalImageModelProfile("image_urls", "list", 4, min_dimension=512),
     "fal-ai/flux-2-pro/edit": FalImageModelProfile("image_urls", "list"),
-    "fal-ai/kling-image/o3/image-to-image": FalImageModelProfile("image_urls", "list", 10, True),
+    "fal-ai/kling-image/o3/image-to-image": FalImageModelProfile("image_urls", "list", 10),
     "openai/gpt-image-2/edit": FalImageModelProfile("image_urls", "list", 16),
 }
 _FAST_VIDEO_DURATIONS = {6, 8, 10, 12, 14, 16, 18, 20}
@@ -170,9 +169,9 @@ class FalProvider:
         return value
 
     @staticmethod
-    def _image_reference_payload(model: str, references: list[str]) -> tuple[dict[str, Any], str]:
+    def _image_reference_payload(model: str, references: list[str]) -> dict[str, Any]:
         if not references:
-            return {}, ""
+            return {}
         profile = image_model_profile(model)
         if profile.max_references is not None and len(references) > profile.max_references:
             raise ValueError(
@@ -181,11 +180,7 @@ class FalProvider:
             )
         field = os.getenv("FAL_IMAGE_REFERENCE_FIELD") or profile.reference_field
         value: str | list[str] = references[0] if profile.reference_shape == "single" else references
-        prompt_suffix = ""
-        if profile.numbered_prompt_references:
-            names = ", ".join(f"@Image{index}" for index in range(1, len(references) + 1))
-            prompt_suffix = f"\n\nReference images are supplied in order as {names}."
-        return {field: value}, prompt_suffix
+        return {field: value}
 
     def _apply_profile_defaults(self, request: MediaRequest, model: str, payload: dict[str, Any]) -> None:
         if request.kind == 'image':
@@ -308,9 +303,7 @@ class FalProvider:
         refs=[value for value in refs if value]
         try:
             if request.kind=='image' and refs:
-                reference_payload, prompt_suffix = self._image_reference_payload(model, refs)
-                payload.update(reference_payload)
-                payload['prompt'] += prompt_suffix
+                payload.update(self._image_reference_payload(model, refs))
             if request.kind=='video':
                 if request.start_frame_asset:
                     payload[os.getenv('FAL_VIDEO_START_FRAME_FIELD','image_url')]=self._remote_or_upload(request.start_frame_asset,client)
