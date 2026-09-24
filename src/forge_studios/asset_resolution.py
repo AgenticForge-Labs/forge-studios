@@ -9,10 +9,12 @@ from .contracts import AssetRecord, EpisodePackage
 def discover_asset_sources(package_path: str | Path) -> tuple[Path | None, Path | None]:
     """Discover the sibling Forge Born manifest and Forge Assets root."""
     package = Path(package_path).expanduser().resolve()
-    forge_born = package.parent.parent
-    manifest = forge_born / 'assets' / 'forge-born.yaml'
-    asset_root = forge_born.parent / 'forge-assets'
-    return (manifest if manifest.is_file() else None, asset_root if asset_root.is_dir() else None)
+    for forge_born in package.parents:
+        manifest = forge_born / 'assets' / 'forge-born.yaml'
+        asset_root = forge_born.parent / 'forge-assets'
+        if manifest.is_file() and asset_root.is_dir():
+            return manifest, asset_root
+    return None, None
 
 
 def bind_missing_references(package: EpisodePackage, *, manifest_path: str | Path, asset_root: str | Path) -> list[AssetRecord]:
