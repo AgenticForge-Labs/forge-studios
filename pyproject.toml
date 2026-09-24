@@ -19,6 +19,7 @@ fal = ["fal-client>=0.7"]
 timeline = ["opentimelineio>=0.17"]
 visual = ["opencv-python-headless>=4.10", "numpy>=1.26"]
 secrets = ["keyring>=25"]
+r2 = ["boto3>=1.35,<2"]
 dev = ["pytest>=8", "ruff>=0.6"]
 full = ["fal-client>=0.7", "opentimelineio>=0.17", "opencv-python-headless>=4.10", "numpy>=1.26", "keyring>=25"]
 

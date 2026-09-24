@@ -152,8 +152,11 @@ The manifest is `assets/forge-born.yaml` in the sibling `forge-born` repo. The a
 media bytes live in the sibling `forge-assets/` directory (the local Directus
 stand-in), NOT inside `forge-born/assets/`:
 
-- Canonical references & generated start frames: `<repo-root>/forge-assets/*.png` and
-  `<repo-root>/forge-assets/forge-born/generated/`. Bytes are not Git-versioned.
+- Canonical references remain under `<repo-root>/forge-assets/<storage_key>`.
+  New generated frames and clips go directly under
+  `<repo-root>/forge-assets/forge-born/episodes/<episode-id>/<run-id>/candidates/`.
+  Historical generated files under `forge-born/generated/` remain historical media.
+  Bytes are not Git-versioned.
 
 Every CLI call that resolves or generates media must pass:
 

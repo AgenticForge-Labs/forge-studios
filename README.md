@@ -73,7 +73,7 @@ The current default Worlds workflow is `start_only`: one static start frame grou
 the shot and the video prompt carries the full audiovisual performance. A shot may use
 `start_and_end` when an explicit destination frame is useful.
 
-Generate and approve production assets before expensive video:
+Generate and approve production assets before expensive video. Generated media goes directly under the sibling `forge-assets/forge-born/episodes/<episode-id>/<run-id>/candidates/` when the package is stored in Forge Born; `--asset-root` or `--output-dir` can select another local destination. Final renders default to that run's `masters/` directory, and `--out` can override it:
 
 ```bash
 forge-studios generate --package episode-package.json --shot-id <shot> --role start_frame --provider fal
@@ -126,6 +126,36 @@ forge-studios timeline --package episode-package.json --out episode.otio --requi
 
 Timeline/edit outputs are reproducible projections of the package and selected approved
 assets.
+
+## Cloudflare storage
+
+Forge Born Git holds the final package and checksummed `media-manifest.json`. Studios
+writes frames, clips, and default final renders to the sibling `forge-assets/` tree.
+After the final capture, back up every inventoried file to private R2:
+
+```bash
+forge-studios backup-r2 \
+  --manifest ../forge-born/productions/forge-born/EPISODE/RUN/media-manifest.json \
+  --asset-root ../forge-assets \
+  --receipt ../forge-born/productions/forge-born/EPISODE/RUN/media-backup.json
+```
+
+The R2 commands require `pip install 'forge-studios[r2]'` and locally configured
+`ASSET_R2_ENDPOINT_URL`, `ASSET_R2_ACCESS_KEY_ID`, and
+`ASSET_R2_SECRET_ACCESS_KEY`. Use bucket-scoped credentials; do not commit them.
+The backup command never deletes or silently replaces an existing R2 object.
+
+After Worlds creates a reviewed `release.json`, publish only its named website
+files and keep the resulting receipt in Forge Born Git:
+
+```bash
+forge-studios publish-r2 \
+  --release ../forge-born/productions/forge-born/EPISODE/RUN/release.json \
+  --asset-root ../forge-assets \
+  --receipt ../forge-born/productions/forge-born/EPISODE/RUN/publication.json
+```
+
+Public overwrites require the exact key in the release's publication approval.
 
 ## Repository boundary
 
