@@ -147,6 +147,8 @@ def publish_release(release_path: str | Path, asset_root: str | Path, receipt_pa
         raise ValueError('publication approval does not match release')
     if not release.get('package_sha256') or not release.get('private_backup_receipt') or not release.get('reconciliation'):
         raise ValueError('release lacks package, backup, or reconciliation evidence')
+    if not release.get('publication_approval_sha256'):
+        raise ValueError('release lacks publication approval hash')
     files = release.get('public_files')
     if not isinstance(files, list) or not files:
         raise ValueError('approved release needs public_files')
@@ -169,6 +171,9 @@ def publish_release(release_path: str | Path, asset_root: str | Path, receipt_pa
         objects.append({'public_key': public_key, 'sha256': digest, 'size': source.stat().st_size,
                         'result': result, 'url': f'https://assets.agenticforgelabs.com/{public_key}'})
     receipt = {'record_type': 'publication_receipt', 'bucket': PUBLIC_BUCKET,
-               'episode_id': release['episode_id'], 'run_id': release['run_id'], 'objects': objects}
+               'episode_id': release['episode_id'], 'run_id': release['run_id'],
+               'release_sha256': sha256_file(Path(release_path)),
+               'publication_approval_sha256': release['publication_approval_sha256'],
+               'objects': objects}
     _write_json_atomic(receipt_path, receipt)
     return receipt
