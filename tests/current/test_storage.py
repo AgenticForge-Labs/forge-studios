@@ -91,8 +91,42 @@ def test_backup_uploads_and_verifies_manifest_bytes(tmp_path):
         "size": source.stat().st_size,
         "verified": True,
     }]
+    assert receipt["skipped"] == []
     assert client.objects[(PRIVATE_BUCKET, key)]["metadata"]["sha256"] == _digest(source)
     assert json.loads(receipt_path.read_text()) == receipt
+
+
+def test_backup_skips_draft_media_marked_not_required(tmp_path):
+    manifest, root, source = _manifest(tmp_path)
+    data = json.loads(manifest.read_text())
+    data["media"][0]["backup_required"] = False
+    data["media"][0]["retention"] = "draft_local"
+    manifest.write_text(json.dumps(data))
+
+    client = FakeR2()
+    receipt = backup_media(manifest, root, tmp_path / "receipt.json", client=client)
+
+    assert receipt["objects"] == []
+    assert receipt["skipped"] == [{
+        "storage_key": source.relative_to(root).as_posix(),
+        "asset_id": "frame-1",
+        "retention": "draft_local",
+        "reason": "backup_not_required",
+    }]
+    assert client.objects == {}
+
+
+def test_backup_ignores_unresolved_draft_media_not_required(tmp_path):
+    manifest, root, _ = _manifest(tmp_path, unresolved=True)
+    data = json.loads(manifest.read_text())
+    data["media"][0]["backup_required"] = False
+    data["media"][0]["retention"] = "draft_local"
+    manifest.write_text(json.dumps(data))
+
+    receipt = backup_media(manifest, root, tmp_path / "receipt.json", client=FakeR2())
+
+    assert receipt["objects"] == []
+    assert receipt["skipped"][0]["reason"] == "backup_not_required"
 
 
 def test_backup_rejects_unresolved_provider_media(tmp_path):

@@ -104,13 +104,27 @@ def backup_media(manifest_path: str | Path, asset_root: str | Path, receipt_path
     media = manifest.get('media')
     if not isinstance(media, list):
         raise ValueError('manifest media must be a list')
-    if any(item.get('backup_status') == 'unresolved' for item in media):
-        raise ValueError('localize remote-only provider media before backup')
+    required_media = [
+        item
+        for item in media
+        if item.get('backup_required', True) is True
+    ]
+    if any(item.get('backup_status') == 'unresolved' for item in required_media):
+        raise ValueError('localize remote-only backup-required provider media before backup')
     root = Path(asset_root).resolve()
     client = r2_client(client)
     objects = []
+    skipped = []
     seen: dict[str, str] = {}
     for item in media:
+        if item.get('backup_required', True) is not True:
+            skipped.append({
+                'storage_key': item.get('storage_key'),
+                'asset_id': item.get('asset_id'),
+                'retention': item.get('retention', 'draft_local'),
+                'reason': 'backup_not_required',
+            })
+            continue
         key = _key(item['storage_key'])
         remote_key = _key(item['private_r2_key'])
         if key != remote_key:
@@ -129,7 +143,7 @@ def backup_media(manifest_path: str | Path, asset_root: str | Path, receipt_path
     receipt = {'record_type': 'media_backup_receipt', 'bucket': PRIVATE_BUCKET,
                'show_id': manifest['show_id'], 'episode_id': manifest['episode_id'],
                'run_id': manifest['run_id'], 'package_sha256': manifest['package_sha256'],
-               'objects': objects}
+               'objects': objects, 'skipped': skipped}
     _write_json_atomic(receipt_path, receipt)
     return receipt
 

@@ -46,8 +46,11 @@ Rules:
 - Preserve package order and shot intent.
 - Stable asset IDs are identity; filenames/provider URLs are transport.
 - Generate required boundary images before paid video.
-- Keep candidate/attempt history.
-- Require explicit approval by default.
+- Keep candidate/attempt history while it remains useful for review.
+- Treat storyboard projections and unapproved candidates as draft-local evidence, not
+  accepted production or required private-backup material.
+- Require explicit approval by default. Approved package media and final masters become
+  accepted production and are backup-required.
 - Use mock/cheap paths when testing plumbing.
 - Never use an LLM to "fix" a prompt inside Studios.
 
@@ -167,7 +170,11 @@ Every CLI call that resolves or generates media must pass:
   it before any paid generation. (See `forge-born/assets/README.md`.)
 
 Never derive asset identity from a filename or provider URL; `logical_key` and
-`asset_id` are the stable keys. Generated media are candidates until approved.
+`asset_id` are the stable keys. Generated media are candidates until approved. Production
+capture may inventory draft candidates with `retention: draft_local` and
+`backup_required: false`; `backup-r2` must skip those while preserving the skip in its
+receipt. Explicitly approved package assets and final masters are
+`accepted_production` and backup-required.
 
 ## Telemetry / Researcher boundary
 

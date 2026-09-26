@@ -83,7 +83,11 @@ forge-studios generate --package episode-package.json --shot-id <shot> --role vi
 
 For `start_and_end`, generate/approve the end frame before video as well.
 
-Regeneration appends new attempts/assets; it does not erase candidate history.
+Regeneration appends new attempts/assets; it does not erase candidate history during
+active work. Storyboard HTML/review projections and unapproved candidate frames/clips are
+draft review evidence, not accepted production. They may be kept locally while useful
+and are not required for private R2 backup. Once a frame/clip is explicitly approved
+into the production package, it becomes accepted production media and is backup-required.
 
 ## Reference semantics
 
@@ -131,7 +135,9 @@ assets.
 
 Forge Born Git holds the final package and checksummed `media-manifest.json`. Studios
 writes frames, clips, and default final renders to the sibling `forge-assets/` tree.
-After the final capture, back up every inventoried file to private R2:
+After the final capture, back up every inventoried item marked
+`backup_required: true` to private R2. Draft storyboard/candidate media are retained in
+the manifest for provenance but skipped:
 
 ```bash
 forge-studios backup-r2 \
@@ -143,7 +149,9 @@ forge-studios backup-r2 \
 The R2 commands require `pip install 'forge-studios[r2]'` and locally configured
 `ASSET_R2_ENDPOINT_URL`, `ASSET_R2_ACCESS_KEY_ID`, and
 `ASSET_R2_SECRET_ACCESS_KEY`. Use bucket-scoped credentials; do not commit them.
-The backup command never deletes or silently replaces an existing R2 object.
+The backup receipt records both verified uploaded objects and draft items intentionally
+skipped because `backup_required` is false. The backup command never deletes or
+silently replaces an existing R2 object.
 
 After Worlds creates a reviewed `release.json`, publish only its named website
 files and keep the resulting receipt in Forge Born Git:
