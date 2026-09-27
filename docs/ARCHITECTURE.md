@@ -76,12 +76,19 @@ A missing prompt is a package error and is returned upstream rather than repaire
 
 ## Boundary frames
 
-`start_only` uses one approved static start image. `start_and_end` additionally uses
-an approved destination frame. Generated endpoint inheritance is explicit rather than
-inferred from shot adjacency.
+`start_only` means the shot has no authored outgoing destination frame.
+`start_and_end` adds an authored destination frame. Incoming start ownership is a
+separate axis: `inherits_start_from_shot_id` binds the immediate predecessor's exact
+approved end frame as this shot's start. This allows a shot to inherit a precise start
+while remaining `start_only` at its own end.
 
-Boundary prompts describe static visible compositions. Temporal action and synchronized
-audio belong in the video prompt.
+The predecessor of an inherited start must author an end frame. Inheritance is explicit
+rather than inferred from adjacency. Boundary prompts describe static visible
+compositions; temporal action and synchronized audio belong in the video prompt.
+
+Forge Worlds may also attach controlled `cinematic_choices` selections to shots. Those
+are semantic provenance/inspection data. Studios executes the already-compiled concrete
+boundary and prompt contract rather than interpreting the vocabulary itself.
 
 ## Reference roles
 
