@@ -6,6 +6,7 @@ from .asset_resolution import bind_missing_references,discover_asset_sources
 from .continuity import extract_boundary_frames
 from .director import AutonomyPolicy,DirectorService,plan_work
 from .filmmaker import render,write_edit_plan
+from .finishing import discover_finishing_profile,finish_episode,load_finishing_profile,score_video
 from .frame_plan import validate_frame_plans
 from .io import load_package,save_json
 from .mlt_backend import render_timeline
@@ -124,9 +125,43 @@ def _auto(args):
     policy=AutonomyPolicy(auto_approve_frames=args.auto_approve_frames,auto_approve_clips=args.auto_approve_clips,allow_generated_video=args.allow_video,max_actions=args.max_actions)
     result=_run_with_failure_checkpoint(args.package,p,lambda: director.run_until_blocked(p,policy)); save_json(args.package,p); print(json.dumps({'status':result.status,'actions_completed':result.actions_completed,'next_work':result.next_work.__dict__ if result.next_work else None},indent=2))
 def _edit_plan(args): print(write_edit_plan(load_package(args.package),args.out))
+def _load_finishing(args):
+    path=args.finishing_profile or discover_finishing_profile(args.package)
+    return load_finishing_profile(path) if path else None
+def _music_args(parser):
+    parser.add_argument('--finishing-profile',help='show-owned finishing YAML; auto-discovered as show/finishing.yaml when omitted')
+    parser.add_argument('--music-mode',choices=['video','style','custom','none'],default=None,help='music strategy; profile default is used when omitted')
+    parser.add_argument('--music-prompt',help='exact prompt for --music-mode custom')
+    parser.add_argument('--music-direction',help='optional episode direction appended to the show style prompt')
+    parser.add_argument('--prompt-influence',type=float,default=None,help='Sonilo prompt influence override')
+    parser.add_argument('--music-level',type=float,default=None,help='music gain before deterministic mix')
+    parser.add_argument('--music-out',help='path for the generated music stem')
+    parser.add_argument('--provider-timeout',type=float,default=None,help='maximum seconds to wait for the Sonilo request')
+    parser.add_argument('--provider-poll-interval',type=float,default=5.0,help='seconds between Sonilo status updates')
 def _render(args):
-    p=load_package(args.package); out=args.out or _media_output_dir(args,p).parent/'masters'/'episode.mp4'
-    print(render(p,out,ffmpeg=args.ffmpeg,telemetry=TelemetrySink(args.telemetry)))
+    p=load_package(args.package); out=args.out or _media_output_dir(args,p).parent/'masters'/'episode.mp4'; sink=TelemetrySink(args.telemetry)
+    profile=_load_finishing(args)
+    if profile is None:
+        if args.music_mode not in (None,'none') or args.music_prompt or args.music_direction:
+            raise ValueError('music finishing requires --finishing-profile or a discoverable show/finishing.yaml')
+        print(render(p,out,ffmpeg=args.ffmpeg,telemetry=sink)); return
+    print(finish_episode(
+        p,package_path=args.package,output=out,profile=profile,manifest_path=args.asset_manifest,asset_root=args.asset_root,
+        ffmpeg=args.ffmpeg,telemetry=sink,music_mode=args.music_mode,music_prompt=args.music_prompt,
+        music_direction=args.music_direction,prompt_influence=args.prompt_influence,music_level=args.music_level,
+        picture_lock_output=args.picture_lock_out,music_output=args.music_out,progress=print,
+        client_timeout_seconds=args.provider_timeout,poll_interval_seconds=args.provider_poll_interval,
+    ))
+def _score_music(args):
+    profile=_load_finishing(args)
+    if profile is None:
+        raise ValueError('score-music requires --finishing-profile or a discoverable show/finishing.yaml')
+    print(score_video(
+        args.video,args.out,profile=profile,music_mode=args.music_mode,music_prompt=args.music_prompt,
+        music_direction=args.music_direction,prompt_influence=args.prompt_influence,music_level=args.music_level,
+        music_output=args.music_out,ffmpeg=args.ffmpeg,telemetry=TelemetrySink(args.telemetry),progress=print,
+        client_timeout_seconds=args.provider_timeout,poll_interval_seconds=args.provider_poll_interval,
+    ))
 def _short_plan(args): print(write_short_edit_plan(load_package(args.package),args.short_id,args.out))
 def _render_short(args):
     p=load_package(args.package); out=args.out or _media_output_dir(args,p).parent/'masters'/f'{args.short_id}.mp4'
@@ -168,7 +203,8 @@ def build_parser():
     d=sub.add_parser('plan'); d.add_argument('--package',required=True); d.set_defaults(func=_plan)
     au=sub.add_parser('auto'); au.add_argument('--package',required=True); au.add_argument('--provider',choices=['mock','fal'],default='mock'); au.add_argument('--output-dir'); au.add_argument('--asset-root'); au.add_argument('--telemetry',default='.agenticforge/telemetry.jsonl'); au.add_argument('--auto-approve-frames',action='store_true'); au.add_argument('--auto-approve-clips',action='store_true'); au.add_argument('--allow-video',action='store_true'); au.add_argument('--max-actions',type=int,default=100); au.set_defaults(func=_auto)
     ep=sub.add_parser('edit-plan'); ep.add_argument('--package',required=True); ep.add_argument('--out',required=True); ep.set_defaults(func=_edit_plan)
-    rr=sub.add_parser('render'); rr.add_argument('--package',required=True); rr.add_argument('--asset-root'); rr.add_argument('--out'); rr.add_argument('--ffmpeg',default='ffmpeg'); rr.add_argument('--telemetry',default='.agenticforge/telemetry.jsonl'); rr.set_defaults(func=_render)
+    rr=sub.add_parser('render'); rr.add_argument('--package',required=True); rr.add_argument('--asset-manifest'); rr.add_argument('--asset-root'); rr.add_argument('--out'); rr.add_argument('--picture-lock-out'); rr.add_argument('--ffmpeg',default='ffmpeg'); rr.add_argument('--telemetry',default='.agenticforge/telemetry.jsonl'); _music_args(rr); rr.set_defaults(func=_render)
+    sm=sub.add_parser('score-music'); sm.add_argument('--package',required=True); sm.add_argument('--video',required=True); sm.add_argument('--out',required=True); sm.add_argument('--ffmpeg',default='ffmpeg'); sm.add_argument('--telemetry',default='.agenticforge/telemetry.jsonl'); _music_args(sm); sm.set_defaults(func=_score_music)
     sep=sub.add_parser('short-edit-plan'); sep.add_argument('--package',required=True); sep.add_argument('--short-id',required=True); sep.add_argument('--out',required=True); sep.set_defaults(func=_short_plan)
     rs=sub.add_parser('render-short'); rs.add_argument('--package',required=True); rs.add_argument('--asset-root'); rs.add_argument('--short-id',required=True); rs.add_argument('--out'); rs.add_argument('--ffmpeg',default='ffmpeg'); rs.add_argument('--width',type=int,default=1080); rs.add_argument('--height',type=int,default=1920); rs.add_argument('--fps',type=int,default=30); rs.add_argument('--telemetry',default='.agenticforge/telemetry.jsonl'); rs.set_defaults(func=_render_short)
     bd=sub.add_parser('extract-boundaries'); bd.add_argument('--package',required=True); bd.add_argument('--shot-id',required=True); bd.add_argument('--asset-id',required=True); bd.add_argument('--out-dir',required=True); bd.add_argument('--ffmpeg',default='ffmpeg'); bd.add_argument('--telemetry',default='.agenticforge/telemetry.jsonl'); bd.set_defaults(func=_boundaries)

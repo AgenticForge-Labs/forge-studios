@@ -100,6 +100,26 @@ errors, latency/cost when available, and review decisions. Candidate history is 
 Filmmaker selects approved media in package order and creates deterministic edit/timeline
 projections. It does not introduce a second editorial truth.
 
+Episode finishing is two-stage:
+
+```text
+approved shot clips
+  -> deterministic picture lock (+ optional show-owned end card)
+  -> provider-generated music stem
+  -> deterministic Studios audio mix
+  -> final master
+```
+
+The show repository owns reusable finishing identity such as logo asset IDs and the
+constant score prompt. Studios owns execution: resolve those stable assets, render the
+end card, submit the complete picture lock to the configured music provider, preserve the
+returned stem/provenance, and mix it beneath the generated clip audio. The default
+configured Sonilo route uses the show's constant style prompt; video-only and custom
+prompt reruns use the same scoring primitive.
+
+Ordinary shot boundaries remain hard cuts by default. End-card fades are deterministic
+finishing behavior, not a reason to add semantic editing decisions inside Studios.
+
 ## Autonomy
 
 Manual and automatic execution use the same primitives. Director applies explicit

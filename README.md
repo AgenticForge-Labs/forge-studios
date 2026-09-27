@@ -128,8 +128,36 @@ forge-studios render --package episode-package.json --out episode.mp4
 forge-studios timeline --package episode-package.json --out episode.otio --require-media
 ```
 
-Timeline/edit outputs are reproducible projections of the package and selected approved
-assets.
+`render` always preserves `package.shots` order and generated clip audio. When it can
+auto-discover a show-owned `show/finishing.yaml`, it also renders that profile's branded
+end card, saves an unscored `episode-picture-lock.mp4`, generates a Sonilo music stem
+through fal, and creates the final deterministic audio mix. A show can therefore keep its
+logos, score prompt, and mix defaults outside the generic Studios runtime.
+
+The music profile default is normally `style`: send the complete picture-locked video
+plus the show's constant style prompt. The same picture lock can be rerun without changing
+the edit:
+
+```bash
+# Let Sonilo infer the music from the video with no text prompt.
+forge-studios score-music --package episode-package.json \
+  --video episode-picture-lock.mp4 --out episode-video-only.mp4 --music-mode video
+
+# Reuse the show style and add light episode-level semantic direction.
+forge-studios score-music --package episode-package.json \
+  --video episode-picture-lock.mp4 --out episode-directed.mp4 --music-mode style \
+  --music-direction "The red dragon approaches the rune stone mysteriously; placing the stone becomes wondrous and larger."
+
+# Replace the show style with an exact manual prompt.
+forge-studios score-music --package episode-package.json \
+  --video episode-picture-lock.mp4 --out episode-custom.mp4 --music-mode custom \
+  --music-prompt "..."
+```
+
+Use `--music-mode none` on `render` to stop at picture lock without making a paid music
+request. Sonilo returns a music stem; Studios, not the provider, remains authoritative for
+the final dialogue/ambience + music mix. Timeline/edit outputs remain reproducible
+projections of the package and selected approved assets.
 
 ## Cloudflare storage
 

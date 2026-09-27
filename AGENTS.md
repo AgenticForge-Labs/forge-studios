@@ -123,6 +123,23 @@ Endpoint inheritance is explicit when present. Do not infer chaining from adjace
 Filmmaker consumes approved media and assembles deterministically. Editorial projections
 must remain reproducible from package + selected assets + edit settings.
 
+Show-specific finishing intent stays outside generic Studios code. When a show-owned
+`show/finishing.yaml` is present, Filmmaker may execute its deterministic end-card,
+music-provider, and mix settings after picture lock. Logo references use stable asset IDs
+resolved through the existing asset manifest/root; never hard-code a show's filenames in
+Studios.
+
+The default configured music route is style-only video-to-music: send the whole
+picture-locked video plus the show's constant prompt. Manual reruns must use the same
+primitive and may choose video-only inference, the show style plus optional episode
+direction, or an exact custom prompt. Studios does not invent episode emotion or rewrite
+music prompts. Sonilo/fal produces a music stem; Studios owns the final mix with the
+generated dialogue/ambience already present in the picture lock.
+
+Narrative shots remain hard-cut by default. A finishing profile may request a fade from
+the final narrative shot into a branded end card. Do not introduce automatic dissolves
+between ordinary shots unless they are explicitly authored later.
+
 ## Agentic mode
 
 Agentic execution applies an explicit autonomy policy to the same primitives used
