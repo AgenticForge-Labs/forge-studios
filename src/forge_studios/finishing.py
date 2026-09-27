@@ -9,6 +9,7 @@ from typing import Any, Literal
 from urllib.parse import urlparse
 from urllib.request import urlretrieve
 
+from .ai_runtime import AIRuntimeMediaClient, runtime_asset
 from .asset_resolution import discover_asset_sources
 from .contracts import EpisodePackage
 from .filmmaker import EndCardRenderSpec, render
@@ -236,43 +237,47 @@ def generate_sonilo_music(
     progress=print,
     client_timeout_seconds: float|None=None,
     poll_interval_seconds: float=5.0,
+    runtime_client: AIRuntimeMediaClient|None=None,
 ) -> Path:
-    try:
-        import fal_client
-    except ImportError as exc:
-        raise RuntimeError('Install Forge Studios with [fal] support') from exc
     src=Path(video).expanduser().resolve(); out=Path(output).expanduser().resolve()
     if not src.is_file():
         raise FileNotFoundError(src)
     out.parent.mkdir(parents=True,exist_ok=True)
-    store=local_config or LocalSecretStore(); key=store.resolve('fal')
-    client=fal_client.SyncClient(key=key) if key else fal_client.SyncClient()
-    video_url=client.upload_file(str(src))
+    runtime_assets:dict[str,dict[str,str]]={}
+    video_url=runtime_asset(str(src),assets=runtime_assets,asset_id='picture_lock')
+    if not video_url:
+        raise RuntimeError('could not prepare picture lock for AI Runtime')
     payload=_sonilo_payload(video_url,prompt=prompt,prompt_influence=prompt_influence)
-    sink=telemetry or TelemetrySink(); started=time.monotonic(); request_id: str|None=None
-    sink.emit('music_generation.started',provider='fal',model=model,video=str(src),prompt=prompt,prompt_influence=prompt_influence)
-
-    def on_enqueue(value: str) -> None:
-        nonlocal request_id
-        request_id=value
-        if progress: progress(f'[fal] music: submitted request {value}; waiting for {model}')
-
-    def on_queue_update(status: Any) -> None:
-        if progress:
-            elapsed=int(time.monotonic()-started)
-            progress(f'[fal] music: {type(status).__name__.lower()}; {elapsed}s elapsed')
-
-    kwargs:dict[str,Any]={
-        'arguments':payload,'with_logs':False,'interval':poll_interval_seconds,
-        'on_enqueue':on_enqueue,'on_queue_update':on_queue_update,
-    }
-    if client_timeout_seconds is not None:
-        kwargs['client_timeout']=client_timeout_seconds
+    sink=telemetry or TelemetrySink(); started=time.monotonic()
+    sink.emit(
+        'music_generation.started',provider='fal',transport='agenticforge-ai-runtime',
+        model=model,video=str(src),prompt=prompt,prompt_influence=prompt_influence,
+    )
+    if progress:
+        progress(f'[ai-runtime/fal] music: submitting {model}')
+    runtime=runtime_client or AIRuntimeMediaClient(
+        timeout_seconds=max((client_timeout_seconds or 600)+30,60),
+    )
+    owns_runtime=runtime_client is None
     try:
-        raw=client.subscribe(model,**kwargs)
+        envelope=runtime.generate(
+            model=model,
+            arguments=payload,
+            assets=runtime_assets,
+            metadata={'caller':'forge-studios','role':'music'},
+            client_timeout_seconds=client_timeout_seconds,
+            poll_interval_seconds=poll_interval_seconds,
+        )
     except Exception as exc:
-        sink.emit('music_generation.failed',provider='fal',model=model,request_id=request_id,error=str(exc))
+        sink.emit(
+            'music_generation.failed',provider='fal',transport='agenticforge-ai-runtime',
+            model=model,error=str(exc),
+        )
         raise
+    finally:
+        if owns_runtime:
+            runtime.close()
+    raw=envelope['result']; request_id=envelope.get('request_id')
     audio=raw.get('audio') if isinstance(raw,dict) else None
     if not isinstance(audio,dict) or not isinstance(audio.get('url'),str):
         audios=raw.get('audios') if isinstance(raw,dict) else None
@@ -284,12 +289,12 @@ def generate_sonilo_music(
         raise RuntimeError(f'Sonilo returned unsupported audio URI: {remote}')
     urlretrieve(remote,out)
     sink.emit(
-        'music_generation.completed',provider='fal',model=model,request_id=request_id,
+        'music_generation.completed',provider='fal',transport='agenticforge-ai-runtime',
+        model=str(envelope.get('model') or model),request_id=request_id,
         uri=str(out),remote_uri=remote,prompt=prompt,prompt_influence=prompt_influence,
         latency_ms=round((time.monotonic()-started)*1000,1),
     )
     return out
-
 
 def _ffprobe_for(ffmpeg: str) -> str:
     path=Path(ffmpeg)

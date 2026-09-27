@@ -44,7 +44,6 @@ intent.
 
 ```bash
 python -m pip install -e '.[dev]'
-python -m pip install -e '.[fal,dev]'
 python -m pip install -e '.[timeline,dev]'
 python -m pip install -e '.[full,dev]'
 ```
@@ -118,14 +117,28 @@ forge-studios auto --package episode-package.json --provider fal
 
 ## Provider configuration
 
-The built-in fal adapter supports local approved references and uploads them only when a
-provider-accessible URL is required. Provider/model-specific field names stay inside
-adapters rather than the EpisodePackage.
+Forge Studios uses the shared AgenticForge AI Runtime as its default provider transport.
+Start Platform first:
+
+```bash
+cd ../agenticforge-platform
+make restart
+```
+
+Studios defaults to `AI_RUNTIME_URL=http://127.0.0.1:8090` and
+`AI_RUNTIME_TOKEN=local-development-token`. The Platform Runtime owns the fal.ai
+credential. Studios owns exact provider-field construction, model/profile selection,
+prompt fidelity, reference ordering, boundary-media binding, result localization, and
+production provenance.
+
+Local approved references and picture-lock videos are sent to Runtime as explicit local
+asset inputs; Runtime uploads them to fal.ai and substitutes only those transport
+references. Runtime must not rewrite prompts or infer production intent.
 
 Use `--mode cheap` for routine iteration. Current cheap defaults are documented in
 `AGENTS.md`.
 
-Never commit provider keys, credentials, or local secret files.
+Never commit Runtime tokens, provider keys, credentials, or local secret files.
 
 ## Filmmaker
 

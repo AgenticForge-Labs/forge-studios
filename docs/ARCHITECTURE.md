@@ -49,7 +49,10 @@ Animator compiles authored shot intent into provider requests. A shot supplies:
 - visual constraints;
 - frame policy and media lifecycle fields.
 
-Provider adapters own transport URLs and provider-specific parameters.
+Provider adapters own provider-specific parameters that encode deterministic production
+intent. AgenticForge AI Runtime owns provider credentials and authenticated network
+transport. For fal.ai, Studios compiles the exact request, supplies explicit local assets,
+and Runtime performs upload/provider execution without changing prompt semantics.
 
 ## Prompt execution
 
@@ -132,6 +135,23 @@ finishing behavior, not a reason to add semantic editing decisions inside Studio
 Manual and automatic execution use the same primitives. Director applies explicit
 permissions for generation, approval, paid video, and retries. Creative revision remains
 outside Studios.
+
+## Shared provider execution
+
+```text
+EpisodePackage / finishing profile
+        ↓
+Forge Studios deterministic provider request
+        ↓
+AgenticForge AI Runtime
+        ↓
+       fal.ai
+```
+
+Animator image/video generation and Filmmaker Sonilo scoring use the same Runtime media
+boundary. Studios retains provider-specific request assembly, media interpretation,
+downloads, review, telemetry, and final deterministic assembly. Runtime centralizes
+credentials and execution only.
 
 ## External boundaries
 

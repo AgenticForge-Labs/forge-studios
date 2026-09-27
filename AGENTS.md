@@ -209,6 +209,24 @@ Collect operational facts only: production/episode/shot/attempt/asset IDs, promp
 references, provider/model/options, reviews, outputs, latency/cost, and render lineage.
 Private optimization logic and audience datasets belong in Forge Researcher.
 
+## Shared AI Runtime boundary
+
+All fal.ai execution, including Animator image/video generation and Filmmaker Sonilo
+music generation, goes through AgenticForge AI Runtime by default.
+
+- Studios owns provider-specific request fields because those fields encode deterministic
+  production intent.
+- Runtime owns fal credentials, authenticated provider transport, and temporary upload of
+  explicitly supplied local assets.
+- Studios sends exact authored prompts; Runtime must not rewrite or semantically augment
+  them.
+- Do not add a second direct `fal_client` path in Studios when the Runtime media contract
+  covers the operation.
+- Preserve resolved provider/model, request ID, raw provider result, and Studios
+  production metadata in telemetry/provenance.
+- Default local endpoint is `AI_RUNTIME_URL=http://127.0.0.1:8090` with the matching
+  `AI_RUNTIME_TOKEN` supplied by Platform configuration.
+
 ## Runtime notes
 
 Use `--mode cheap` for routine boundary generation unless the user explicitly chooses
