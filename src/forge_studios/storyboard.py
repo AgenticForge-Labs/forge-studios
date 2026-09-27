@@ -203,7 +203,7 @@ def build_storyboard(package: EpisodePackage, path: str | Path) -> Path:
 <style>{_storyboard_styles()}</style>
 <h1>{html.escape(package.title)} — Production Storyboard</h1>
 <p>{html.escape(package.premise)}</p>
-<div class="explain"><b>This is the final human pre-video review artifact.</b> Start-only units show the actual START frame anchor plus the complete video prompt. An END frame appears only for a unit explicitly authored as start_and_end. <a href="{html.escape(guide_path.name)}">Open the image-generation guide →</a></div>
+<div class="explain"><b>This is the final human pre-video review artifact.</b> Every unit shows its actual START anchor, including an inherited predecessor endpoint when explicitly chained, plus the complete video prompt. An END frame appears only for a unit explicitly authored as start_and_end. <a href="{html.escape(guide_path.name)}">Open the image-generation guide →</a></div>
 {''.join(cards)}'''
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(doc)
