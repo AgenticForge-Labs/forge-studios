@@ -149,13 +149,13 @@ class AnimatorService:
         prompt=specific.strip()
         continuity_assets=_validate_continuity_references(package,shot); reference_ids=[asset.asset_id for asset in continuity_assets]
         start_id=shot.approved_start_frame_asset_id or shot.frame_plan.start_asset_id; end_id=shot.approved_end_frame_asset_id or shot.frame_plan.end_asset_id
-        if shot.frame_plan.mode=='start_and_end' and shot.frame_plan.chain_from_shot_id:
+        if shot.frame_plan.chain_from_shot_id:
             if role=='start_frame': raise ValueError(f'Shot {shot_id!r} inherits its start frame from the predecessor; bind that endpoint instead of generating a new start frame.')
             issues=validate_frame_plans(package,require_approved_end_frames=True,shot_id=shot_id)
             if issues: raise FramePlanError(issues[0])
             previous=predecessor_for(package,shot); endpoint=previous.approved_end_frame_asset_id
             if shot.approved_start_frame_asset_id != endpoint:
-                raise FramePlanError(FramePlanIssue('START_AND_END_INHERITED_START_NOT_BOUND',f"Shot {shot_id!r} must bind predecessor {previous.shot_id!r}'s approved endpoint as its start frame.",shot_id,previous.shot_id,endpoint))
+                raise FramePlanError(FramePlanIssue('INHERITED_START_NOT_BOUND',f"Shot {shot_id!r} must bind predecessor {previous.shot_id!r}'s approved endpoint as its start frame.",shot_id,previous.shot_id,endpoint))
             start_id=endpoint
         if role=='end_frame' and not shot.approved_start_frame_asset_id:
             raise ValueError(f'Shot {shot_id!r} needs an approved start frame before generating its end frame.')

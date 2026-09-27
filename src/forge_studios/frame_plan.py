@@ -240,26 +240,11 @@ def validate_frame_plans(
                 f"Shot {shot.shot_id!r} is {shot.duration_seconds:g}s; generated video is capped at 20s.",
                 shot.shot_id,
             ))
-        if shot.frame_plan.mode == "start_only" and shot.frame_plan.chain_from_shot_id:
-            issues.append(FramePlanIssue(
-                "START_ONLY_MUST_NOT_CHAIN",
-                f"Shot {shot.shot_id!r} is start_only and must begin from its own approved start frame.",
-                shot.shot_id,
-            ))
 
-    # Exact endpoint inheritance is explicit on a start_and_end shot; adjacency alone never implies it.
+    # Incoming endpoint inheritance is independent of whether this shot also authors
+    # an outgoing destination frame. Adjacency alone never implies inheritance.
     for shot in selected:
         transition_mode = _transition_mode(shot)
-        if shot.frame_plan.mode == "start_only":
-            if transition_mode not in {"", "new_composition"}:
-                issues.append(FramePlanIssue(
-                    "START_ONLY_REQUIRES_NEW_COMPOSITION",
-                    f"Shot {shot.shot_id!r} is start_only and cannot declare endpoint inheritance.",
-                    shot.shot_id,
-                ))
-            continue
-        if shot.frame_plan.mode != "start_and_end":
-            continue
         if transition_mode not in {"", "new_composition", "inherit_endpoint"}:
             issues.append(FramePlanIssue(
                 "INVALID_CONTINUITY_MODE",
@@ -276,6 +261,13 @@ def validate_frame_plans(
                     shot.frame_plan.chain_from_shot_id,
                 ))
             continue
+        if not shot.frame_plan.chain_from_shot_id:
+            issues.append(FramePlanIssue(
+                "INHERIT_ENDPOINT_REQUIRES_CHAIN",
+                f"Shot {shot.shot_id!r} declares endpoint inheritance without naming a predecessor.",
+                shot.shot_id,
+            ))
+            continue
 
         index = positions[shot.shot_id]
         if index == 0:
@@ -286,6 +278,14 @@ def validate_frame_plans(
             ))
             continue
         predecessor = shots[index - 1]
+        if predecessor.frame_plan.mode != "start_and_end":
+            issues.append(FramePlanIssue(
+                "ENDPOINT_HANDOFF_PREDECESSOR_HAS_NO_END_FRAME",
+                f"Shot {shot.shot_id!r} inherits from predecessor {predecessor.shot_id!r}, "
+                "so that predecessor must author an end frame.",
+                shot.shot_id,
+                predecessor.shot_id,
+            ))
         if shot.frame_plan.chain_from_shot_id != predecessor.shot_id:
             issues.append(FramePlanIssue(
                 "EXPLICIT_ENDPOINT_HANDOFF_REQUIRED",
@@ -324,9 +324,7 @@ def validate_frame_plans(
             ))
 
     for shot in selected:
-        inherits_endpoint = (
-            shot.frame_plan.mode == "start_and_end" and bool(shot.frame_plan.chain_from_shot_id)
-        )
+        inherits_endpoint = bool(shot.frame_plan.chain_from_shot_id)
         if not inherits_endpoint:
             continue
         try:

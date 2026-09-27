@@ -111,12 +111,22 @@ paid request, but must fail rather than truncate or rewrite the authored prompt.
 
 ## Frame policy
 
-The current contract supports:
+The current contract treats incoming continuity and outgoing frame constraints as
+independent axes:
 
-- `start_only`: independent shot with one authored start frame;
-- `start_and_end`: authored start and destination frames.
+- `start_only`: this shot does not author its own destination frame;
+- `start_and_end`: this shot authors a destination frame;
+- `inherits_start_from_shot_id`: when present, this shot begins from the exact approved
+  end frame of its immediate predecessor, regardless of its own frame-plan mode.
 
-Endpoint inheritance is explicit when present. Do not infer chaining from adjacency.
+An inheriting shot therefore may be `start_only`: the predecessor supplies its exact
+start, while the shot remains free at its own end. The predecessor must be
+`start_and_end` so an authored endpoint exists. Endpoint inheritance is always explicit;
+never infer chaining from adjacency.
+
+Public `cinematic_choices` are semantic vocabulary selections authored upstream. Studios
+preserves them for inspection/provenance but executes the concrete frame-plan and prompt
+fields; it does not reinterpret cinematic vocabulary.
 
 ## Filmmaker
 

@@ -71,7 +71,14 @@ forge-studios storyboard   --package episode-package.json   --out storyboard.htm
 
 The current default Worlds workflow is `start_only`: one static start frame grounds
 the shot and the video prompt carries the full audiovisual performance. A shot may use
-`start_and_end` when an explicit destination frame is useful.
+`start_and_end` when an explicit destination frame is useful. Incoming continuity is
+separate: `inherits_start_from_shot_id` reuses the immediate predecessor's exact approved
+end frame as this shot's start. The inheriting shot may still be `start_only` when its
+own destination should remain unconstrained.
+
+Shots may also carry upstream `cinematic_choices` vocabulary selections for human review
+and provenance. Studios does not reinterpret those semantic choices; it executes their
+compiled frame-plan and prompts.
 
 Generate and approve production assets before expensive video. Generated media goes directly under the sibling `forge-assets/forge-born/episodes/<episode-id>/<run-id>/candidates/` when the package is stored in Forge Born; `--asset-root` or `--output-dir` can select another local destination. Final renders default to that run's `masters/` directory, and `--out` can override it:
 

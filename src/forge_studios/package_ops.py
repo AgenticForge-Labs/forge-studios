@@ -22,7 +22,7 @@ def approve_asset(package: EpisodePackage, shot_id: str, kind: str, asset_id: st
     inheriting=[]
     if kind=='end_frame':
         inheriting=[successor for successor in package.shots
-                    if successor.frame_plan.mode=='start_and_end' and successor.frame_plan.chain_from_shot_id==shot_id]
+                    if successor.frame_plan.chain_from_shot_id==shot_id]
         for successor in inheriting:
             issues=validate_frame_plans(package,shot_id=successor.shot_id)
             if issues: raise FramePlanError(issues[0])
@@ -38,8 +38,8 @@ def approve_asset(package: EpisodePackage, shot_id: str, kind: str, asset_id: st
 def bind_inherited_start_frame(package: EpisodePackage, shot_id: str) -> str:
     """Reuse an approved immediate predecessor endpoint as this shot's start."""
     shot=package.find_shot(shot_id)
-    if shot.frame_plan.mode!='start_and_end' or not shot.frame_plan.chain_from_shot_id:
-        raise ValueError(f'shot {shot_id!r} has no start_and_end predecessor handoff')
+    if not shot.frame_plan.chain_from_shot_id:
+        raise ValueError(f'shot {shot_id!r} has no predecessor endpoint handoff')
     predecessor=predecessor_for(package,shot)
     issues=validate_frame_plans(package,shot_id=shot_id)
     if issues: raise FramePlanError(issues[0])
