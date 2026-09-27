@@ -3,7 +3,6 @@ from __future__ import annotations
 import math
 import os
 import re
-import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
@@ -11,7 +10,7 @@ from urllib.parse import urlparse
 from urllib.request import urlretrieve
 from uuid import uuid4
 
-from ..ai_runtime import AIRuntimeError, AIRuntimeMediaClient, runtime_asset
+from ..ai_runtime import AIRuntimeMediaClient, runtime_asset
 from ..generation import GenerationMode, StudiosGenerationProfile, resolve_generation_profile
 from ..local_config import LocalSecretStore
 from .base import MediaRequest, MediaResult, ProviderGenerationError
@@ -162,18 +161,6 @@ class FalProvider:
         if parsed.scheme not in {'http','https'}:
             return uri, None
         return self._download_output(uri,request,index), uri
-
-    @staticmethod
-    def _remote_or_upload(value: str|None, client) -> str|None:
-        if not value:
-            return None
-        parsed=urlparse(value)
-        if parsed.scheme in {'http','https','data'}:
-            return value
-        path=Path(value).expanduser()
-        if path.exists() and path.is_file():
-            return client.upload_file(str(path.resolve()))
-        return value
 
     @staticmethod
     def _provider_prompt(model: str, prompt: str) -> str:
