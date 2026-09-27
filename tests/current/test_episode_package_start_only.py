@@ -106,3 +106,71 @@ def test_start_only_storyboard_generation_creates_only_start_frame():
     assert [asset.kind for asset in generated] == ["start_frame"]
     assert p.shots[0].start_frame_asset_ids == ["generated-start_frame"]
     assert p.shots[0].end_frame_asset_ids == []
+
+
+def inherited_start_only_package() -> EpisodePackage:
+    raw = {
+        "package_version": "episode_package",
+        "production_id": "test-handoff",
+        "episode_id": "e2",
+        "world_id": "forge-born",
+        "show_id": "forge-born",
+        "title": "Continuous action",
+        "premise": "A reveal flows directly into Ember's next action.",
+        "arc": "The camera reveals scale, then Ember jumps.",
+        "target_duration_seconds": 30,
+        "beats": [{"beat_id": "reveal"}, {"beat_id": "jump"}],
+        "shots": [
+            {
+                "shot_id": "reveal",
+                "beat_id": "reveal",
+                "duration_seconds": 15,
+                "site_id": "place_forge",
+                "frame_plan_mode": "start_and_end",
+                "start_frame_prompt": "Tight settled view of Ember at the altar edge.",
+                "end_frame_prompt": "Wide settled view revealing the Forge around Ember at the altar edge.",
+                "video_prompt": "The camera pulls back to reveal the scale of the Forge.",
+            },
+            {
+                "shot_id": "jump",
+                "beat_id": "jump",
+                "duration_seconds": 15,
+                "site_id": "place_forge",
+                "frame_plan_mode": "start_only",
+                "inherits_start_from_shot_id": "reveal",
+                "start_frame_prompt": "Wide settled view revealing the Forge around Ember at the altar edge.",
+                "video_prompt": "Ember jumps down from the altar and lands below.",
+                "cinematic_choices": [
+                    {
+                        "vocabulary_id": "cinematic_boundary_from_previous",
+                        "term_id": "exact_continuity",
+                        "purpose": "Begin from the exact reveal endpoint.",
+                    }
+                ],
+            },
+        ],
+        "assets": [],
+    }
+    return EpisodePackage.model_validate(raw)
+
+
+def test_start_only_may_inherit_exact_predecessor_endpoint():
+    p = inherited_start_only_package()
+    successor = p.shots[1]
+
+    assert successor.frame_plan.mode == "start_only"
+    assert successor.frame_plan.chain_from_shot_id == "reveal"
+    assert successor.end_frame_prompt is None
+    assert successor.cinematic_choices[0].term_id == "exact_continuity"
+    assert validate_frame_plans(p) == []
+
+
+def test_inherited_start_only_generates_no_duplicate_start_or_end():
+    p = inherited_start_only_package()
+    animator = FakeAnimator()
+    generated = generate_boundary_candidates(p, animator)
+
+    assert animator.roles == ["start_frame", "end_frame"]
+    assert [asset.kind for asset in generated] == ["start_frame", "end_frame"]
+    assert p.shots[1].start_frame_asset_ids[-1] == p.shots[0].end_frame_asset_ids[-1]
+    assert p.shots[1].end_frame_asset_ids == []
