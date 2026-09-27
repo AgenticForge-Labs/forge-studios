@@ -11,6 +11,7 @@ from urllib.parse import urlparse
 from urllib.request import urlretrieve
 from uuid import uuid4
 
+from ..ai_runtime import AIRuntimeError, AIRuntimeMediaClient, runtime_asset
 from ..generation import GenerationMode, StudiosGenerationProfile, resolve_generation_profile
 from ..local_config import LocalSecretStore
 from .base import MediaRequest, MediaResult, ProviderGenerationError
@@ -103,6 +104,7 @@ class FalProvider:
         progress: Callable[[str], None]|None=None,
         client_timeout_seconds: float|None=None,
         poll_interval_seconds: float|None=None,
+        runtime_client: AIRuntimeMediaClient|None=None,
     ):
         env_mode = mode if mode is not None else os.getenv('FORGE_STUDIOS_MODE')
         self.profile: StudiosGenerationProfile = resolve_generation_profile(
@@ -124,6 +126,7 @@ class FalProvider:
         self.progress=progress
         self.client_timeout_seconds=client_timeout_seconds if client_timeout_seconds is not None else float(os.getenv('FAL_CLIENT_TIMEOUT_SECONDS','300'))
         self.poll_interval_seconds=poll_interval_seconds if poll_interval_seconds is not None else float(os.getenv('FAL_POLL_INTERVAL_SECONDS','5'))
+        self.runtime_client=runtime_client
 
     @property
     def generation_mode(self) -> str:
@@ -306,129 +309,129 @@ class FalProvider:
         return items
 
     def generate(self, request: MediaRequest) -> list[MediaResult]:
-        try:
-            import fal_client
-        except ImportError as exc:
-            raise RuntimeError('Install Forge Studios with [fal] support') from exc
         model=self.model_for(request)
-        stored_key=self.local_config.resolve('fal')
-        client=fal_client.SyncClient(key=stored_key) if stored_key else fal_client.SyncClient()
-        provider_prompt = (
-            self._provider_prompt(model, request.prompt)
-            if request.kind == 'image'
+        provider_prompt=(
+            self._provider_prompt(model,request.prompt)
+            if request.kind=='image'
             else request.prompt
         )
-        payload: dict[str,Any]={'prompt':provider_prompt,**request.options}
+        payload:dict[str,Any]={'prompt':provider_prompt,**request.options}
         try:
             self._apply_profile_defaults(request,model,payload)
         except Exception as exc:
             raise ProviderGenerationError(
-                str(exc), provider=self.name, model=model,
+                str(exc),provider=self.name,model=model,
                 diagnostics={
                     'failure_class':'request_validation',
-                    'provider_settings':self._diagnostic_settings(request=request,model=model,payload=payload,reference_count=len(request.reference_assets)),
+                    'provider_settings':self._diagnostic_settings(
+                        request=request,model=model,payload=payload,
+                        reference_count=len(request.reference_assets),
+                    ),
                 },
             ) from exc
-        refs=[self._remote_or_upload(value,client) for value in request.reference_assets]
-        refs=[value for value in refs if value]
+
+        runtime_assets:dict[str,dict[str,str]]={}
+        refs=[]
+        for index,value in enumerate(request.reference_assets):
+            resolved=runtime_asset(value,assets=runtime_assets,asset_id=f'reference_{index}')
+            if resolved:
+                refs.append(resolved)
         try:
             if request.kind=='image' and refs:
-                payload.update(self._image_reference_payload(model, refs))
+                payload.update(self._image_reference_payload(model,refs))
             if request.kind=='video':
                 if request.start_frame_asset:
-                    payload[os.getenv('FAL_VIDEO_START_FRAME_FIELD','image_url')]=self._remote_or_upload(request.start_frame_asset,client)
+                    payload[os.getenv('FAL_VIDEO_START_FRAME_FIELD','image_url')]=runtime_asset(
+                        request.start_frame_asset,assets=runtime_assets,asset_id='start_frame',
+                    )
                 if request.end_frame_asset:
-                    payload[os.getenv('FAL_VIDEO_END_FRAME_FIELD','end_image_url')]=self._remote_or_upload(request.end_frame_asset,client)
+                    payload[os.getenv('FAL_VIDEO_END_FRAME_FIELD','end_image_url')]=runtime_asset(
+                        request.end_frame_asset,assets=runtime_assets,asset_id='end_frame',
+                    )
                 ref_field=os.getenv('FAL_VIDEO_REFERENCE_FIELD')
-                if refs and ref_field: payload[ref_field]=refs
+                if refs and ref_field:
+                    payload[ref_field]=refs
         except Exception as exc:
             raise ProviderGenerationError(
-                str(exc), provider=self.name, model=model,
+                str(exc),provider=self.name,model=model,
                 diagnostics={
                     'failure_class':'request_validation',
-                    'provider_settings':self._diagnostic_settings(request=request,model=model,payload=payload,reference_count=len(refs)),
+                    'provider_settings':self._diagnostic_settings(
+                        request=request,model=model,payload=payload,reference_count=len(refs),
+                    ),
                 },
             ) from exc
-        settings=self._diagnostic_settings(request=request,model=model,payload=payload,reference_count=len(refs))
-        if request.kind=='image':
-            self._progress(
-                f'[fal] {request.shot_id} {request.role}: mode={self.generation_mode} model={model} '
-                f'image_target={settings.get("image_target_size")} image_size={payload.get("image_size", "provider-default")} '
-                f'safety_tolerance={payload.get("safety_tolerance", "provider-default")}, '
-                f'enable_safety_checker={payload.get("enable_safety_checker", "provider-default")}'
-            )
-        else:
-            size=payload.get('video_size') or payload.get('resolution','provider-default')
-            self._progress(f'[fal] {request.shot_id} {request.role}: mode={self.generation_mode} model={model} video_size={size}')
-        started=time.monotonic()
-        request_id: str|None=None
-        last_status: str|None=None
 
-        def on_enqueue(value: str) -> None:
-            nonlocal request_id
-            request_id=value
-            self._progress(f'[fal] {request.shot_id} {request.role}: submitted request {value}; waiting for {model}')
-
-        def on_queue_update(status: Any) -> None:
-            nonlocal last_status
-            name=type(status).__name__
-            detail=[]
-            for field in ('position','queue_position'):
-                value=getattr(status,field,None)
-                if value is not None:
-                    detail.append(f'{field}={value}')
-            summary=f'{name.lower()}{" (" + ", ".join(detail) + ")" if detail else ""}'
-            elapsed=int(time.monotonic()-started)
-            if summary != last_status or elapsed % max(1,int(self.poll_interval_seconds)) == 0:
-                self._progress(f'[fal] {request.shot_id} {request.role}: {summary}; {elapsed}s elapsed')
-                last_status=summary
-
+        settings=self._diagnostic_settings(
+            request=request,model=model,payload=payload,reference_count=len(refs),
+        )
+        self._progress(
+            f'[ai-runtime/fal] {request.shot_id} {request.role}: '
+            f'mode={self.generation_mode} model={model}'
+        )
+        runtime=self.runtime_client or AIRuntimeMediaClient(
+            timeout_seconds=max(self.client_timeout_seconds+30,60),
+        )
+        owns_runtime=self.runtime_client is None
         try:
-            raw=client.subscribe(
-                model,arguments=payload,with_logs=False,
-                interval=self.poll_interval_seconds,
-                on_enqueue=on_enqueue,
-                on_queue_update=on_queue_update,
-                client_timeout=self.client_timeout_seconds,
+            envelope=runtime.generate(
+                model=model,
+                arguments=payload,
+                assets=runtime_assets,
+                metadata={
+                    'caller':'forge-studios',
+                    'shot_id':request.shot_id,
+                    'role':request.role,
+                    'generation_mode':self.generation_mode,
+                },
+                client_timeout_seconds=self.client_timeout_seconds,
+                poll_interval_seconds=self.poll_interval_seconds,
             )
         except Exception as exc:
             failure_class=_classify_fal_failure(exc)
-            error=ProviderGenerationError(
-                str(exc), provider=self.name, model=model, request_id=request_id,
+            raise ProviderGenerationError(
+                str(exc),provider=self.name,model=model,
                 diagnostics={
                     'failure_class':failure_class,
+                    'transport':'agenticforge-ai-runtime',
                     'provider_settings':settings,
                 },
-            )
-            if request_id:
-                error.add_note(f'fal request id: {request_id}')
-            if failure_class=='timeout':
-                error.add_note(
-                    f'Fal request timed out after {self.client_timeout_seconds:g}s. The client attempted cancellation; '
-                    'rerun safely resumes from already-saved storyboard shots.'
-                )
-            raise error from exc
+            ) from exc
+        finally:
+            if owns_runtime:
+                runtime.close()
+
+        raw=envelope['result']
+        request_id=envelope.get('request_id')
+        served_model=str(envelope.get('model') or model)
         media_items=self._media_items(raw)
         if not media_items:
             raise ProviderGenerationError(
-                'fal.ai returned no recognizable media URI', provider=self.name, model=model, request_id=request_id,
+                'fal.ai returned no recognizable media URI',
+                provider=self.name,model=served_model,request_id=request_id,
                 diagnostics={
                     'failure_class':'malformed_response',
+                    'transport':'agenticforge-ai-runtime',
                     'response_keys':sorted(raw.keys()) if isinstance(raw,dict) else [],
                     'provider_settings':settings,
                 },
             )
         results=[]
         for index,(uri,media) in enumerate(media_items):
-            actual={key:media.get(key) for key in ('width','height','fps','duration','num_frames') if media.get(key) is not None}
+            actual={
+                key:media.get(key)
+                for key in ('width','height','fps','duration','num_frames')
+                if media.get(key) is not None
+            }
             results.append(MediaResult(
                 uri=self._download_output(uri,request,index),
                 provider=self.name,
-                model=model,
+                model=served_model,
                 metadata={
                     'provider_result':raw,
                     'remote_uri':uri,
                     'request_id':request_id,
+                    'transport':'agenticforge-ai-runtime',
                     'generation_mode':self.generation_mode,
                     'provider_settings':settings,
                     'actual_media':actual,
