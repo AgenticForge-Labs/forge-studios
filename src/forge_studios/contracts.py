@@ -7,7 +7,12 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class FramePlan(BaseModel):
-    """Internal Studios boundary state compiled from the public package."""
+    """Internal boundary state compiled from the public package.
+
+    mode controls whether this shot authors an outgoing destination frame.
+    chain_from_shot_id independently controls whether its incoming start is the
+    exact approved endpoint of the preceding shot.
+    """
 
     model_config = ConfigDict(extra="forbid")
     mode: Literal["start_only", "start_and_end"] = "start_only"
@@ -16,6 +21,16 @@ class FramePlan(BaseModel):
     end_asset_id: str | None = None
     capture_generated_first_frame: bool = False
     capture_generated_last_frame: bool = False
+
+
+class VocabularySelection(BaseModel):
+    """Stable semantic vocabulary choice preserved from Forge Worlds."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    vocabulary_id: str
+    term_id: str
+    purpose: str = ""
 
 
 class Shot(BaseModel):
@@ -28,6 +43,7 @@ class Shot(BaseModel):
     site_area_id: str | None = None
     character_ids: list[str] = Field(default_factory=list)
     visible_entity_ids: list[str] = Field(default_factory=list)
+    cinematic_choices: list[VocabularySelection] = Field(default_factory=list)
     reference_asset_ids: list[str] = Field(default_factory=list)
     reference_uses: dict[str, str] = Field(default_factory=dict)
     frame_plan_mode: Literal["start_only", "start_and_end"] | None = None
@@ -89,8 +105,6 @@ class Shot(BaseModel):
             raise ValueError("start_and_end shot requires end_frame_prompt")
         if mode == "start_only" and self.end_frame_prompt is not None:
             raise ValueError("start_only shot must not carry end_frame_prompt")
-        if mode == "start_only" and self.inherits_start_from_shot_id:
-            raise ValueError("start_only shots are independent and cannot inherit endpoints")
         return self
 
 
