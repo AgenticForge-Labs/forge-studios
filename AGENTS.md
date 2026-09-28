@@ -203,6 +203,25 @@ capture may inventory draft candidates with `retention: draft_local` and
 receipt. Explicitly approved package assets and final masters are
 `accepted_production` and backup-required.
 
+## Shared evidence/event boundary
+
+Forge Studios remains authoritative for generation attempts, review decisions, generated
+asset lineage, render/edit events, and deterministic provider request construction.
+
+The local `.agenticforge/telemetry.jsonl` remains the complete Studios event record.
+When `AGENTICFORGE_EVIDENCE_TOKEN` is configured, the same event is mirrored
+best-effort into Platform `af_events` with stable production lineage. Repeated prompt
+strings are stored once as content-addressed `forge-studios/provider_prompt` evidence
+and central events carry pointers instead of duplicated prompt bodies.
+
+AI Runtime receives the same production/episode/shot/attempt lineage for fal execution,
+so its provider request/response, usage, latency, request IDs, and cost can be joined to
+Studios events without making Runtime the owner of production semantics.
+
+Platform persistence failure must never invalidate a local Studios event or successful
+provider execution. Forge Researcher consumes the shared records and may create derived
+datasets/models, but does not rewrite Studios production truth.
+
 ## Telemetry / Researcher boundary
 
 Collect operational facts only: production/episode/shot/attempt/asset IDs, prompts,
