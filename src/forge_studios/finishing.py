@@ -361,6 +361,9 @@ def mix_music(
     fade_in_seconds: float=0.4,
     fade_out_seconds: float=0.8,
     telemetry: TelemetrySink|None=None,
+    production_id: str|None=None,
+    episode_id: str|None=None,
+    show_id: str|None=None,
 ) -> Path:
     video_path=Path(video).expanduser().resolve(); music_path=Path(music).expanduser().resolve(); out=Path(output).expanduser().resolve()
     if not video_path.is_file(): raise FileNotFoundError(video_path)
@@ -372,7 +375,11 @@ def mix_music(
         fade_in_seconds=fade_in_seconds,fade_out_seconds=fade_out_seconds,
     )
     subprocess.run(cmd,check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
-    (telemetry or TelemetrySink()).emit('final_mix.completed',video=str(video_path),music=str(music_path),uri=str(out),music_level=level)
+    (telemetry or TelemetrySink()).emit(
+        'final_mix.completed',video=str(video_path),music=str(music_path),
+        uri=str(out),music_level=level,production_id=production_id,
+        episode_id=episode_id,show_id=show_id,
+    )
     return out
 
 
@@ -419,6 +426,7 @@ def score_video(
     return mix_music(
         source,music_path,out,ffmpeg=ffmpeg,level=level,fade_in_seconds=music.fade_in_seconds,
         fade_out_seconds=music.fade_out_seconds,telemetry=sink,
+        production_id=production_id,episode_id=episode_id,show_id=show_id,
     )
 
 
