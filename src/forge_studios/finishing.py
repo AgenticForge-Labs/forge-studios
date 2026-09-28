@@ -9,7 +9,7 @@ from typing import Any, Literal
 from urllib.parse import urlparse
 from urllib.request import urlretrieve
 
-from .ai_runtime import AIRuntimeMediaClient, runtime_asset
+from .ai_runtime import AIRuntimeMediaClient, runtime_asset, studios_trace
 from .asset_resolution import discover_asset_sources
 from .contracts import EpisodePackage
 from .filmmaker import EndCardRenderSpec, render
@@ -238,6 +238,9 @@ def generate_sonilo_music(
     client_timeout_seconds: float|None=None,
     poll_interval_seconds: float=5.0,
     runtime_client: AIRuntimeMediaClient|None=None,
+    production_id: str|None=None,
+    episode_id: str|None=None,
+    show_id: str|None=None,
 ) -> Path:
     src=Path(video).expanduser().resolve(); out=Path(output).expanduser().resolve()
     if not src.is_file():
@@ -252,6 +255,7 @@ def generate_sonilo_music(
     sink.emit(
         'music_generation.started',provider='fal',transport='agenticforge-ai-runtime',
         model=model,video=str(src),prompt=prompt,prompt_influence=prompt_influence,
+        production_id=production_id,episode_id=episode_id,show_id=show_id,
     )
     if progress:
         progress(f'[ai-runtime/fal] music: submitting {model}')
@@ -265,13 +269,21 @@ def generate_sonilo_music(
             arguments=payload,
             assets=runtime_assets,
             metadata={'caller':'forge-studios','role':'music'},
+            trace=studios_trace(
+                production_id=production_id,
+                episode_id=episode_id,
+                show_id=show_id,
+                role='music',
+                purpose='music_generation',
+            ),
             client_timeout_seconds=client_timeout_seconds,
             poll_interval_seconds=poll_interval_seconds,
         )
     except Exception as exc:
         sink.emit(
             'music_generation.failed',provider='fal',transport='agenticforge-ai-runtime',
-            model=model,error=str(exc),
+            model=model,error=str(exc),production_id=production_id,
+            episode_id=episode_id,show_id=show_id,
         )
         raise
     finally:
@@ -292,6 +304,7 @@ def generate_sonilo_music(
         'music_generation.completed',provider='fal',transport='agenticforge-ai-runtime',
         model=str(envelope.get('model') or model),request_id=request_id,
         uri=str(out),remote_uri=remote,prompt=prompt,prompt_influence=prompt_influence,
+        production_id=production_id,episode_id=episode_id,show_id=show_id,
         latency_ms=round((time.monotonic()-started)*1000,1),
     )
     return out
@@ -379,6 +392,9 @@ def score_video(
     progress=print,
     client_timeout_seconds: float|None=None,
     poll_interval_seconds: float=5.0,
+    production_id: str|None=None,
+    episode_id: str|None=None,
+    show_id: str|None=None,
 ) -> Path:
     """Generate a fresh music stem for an existing picture lock and mix it deterministically."""
     source=Path(video).expanduser().resolve(); out=Path(output).expanduser().resolve(); sink=telemetry or TelemetrySink()
@@ -397,7 +413,8 @@ def score_video(
     generate_sonilo_music(
         source,music_path,model=music.model,prompt=prompt,prompt_influence=influence,
         telemetry=sink,progress=progress,client_timeout_seconds=client_timeout_seconds,
-        poll_interval_seconds=poll_interval_seconds,
+        poll_interval_seconds=poll_interval_seconds,production_id=production_id,
+        episode_id=episode_id,show_id=show_id,
     )
     return mix_music(
         source,music_path,out,ffmpeg=ffmpeg,level=level,fade_in_seconds=music.fade_in_seconds,
@@ -442,5 +459,6 @@ def finish_episode(
         picture,out,profile=profile,music_mode=music_mode,music_prompt=music_prompt,music_direction=music_direction,
         prompt_influence=prompt_influence,music_level=music_level,music_output=music_output,ffmpeg=ffmpeg,
         telemetry=sink,progress=progress,client_timeout_seconds=client_timeout_seconds,
-        poll_interval_seconds=poll_interval_seconds,
+        poll_interval_seconds=poll_interval_seconds,production_id=package.production_id,
+        episode_id=package.episode_id,show_id=package.show_id,
     )
