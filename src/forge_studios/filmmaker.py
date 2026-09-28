@@ -214,6 +214,7 @@ def render(
     subprocess.run([ffmpeg,'-y','-f','concat','-safe','0','-i',str(concat),'-c','copy',str(output)],check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
     (telemetry or TelemetrySink()).emit(
         'final_render.completed',production_id=package.production_id,episode_id=package.episode_id,
+        show_id=package.show_id,
         uri=str(output.resolve()),duration_seconds=sum(x['duration_seconds'] for x in timeline)+extra_duration,
         end_card=bool(end_card),
     )
