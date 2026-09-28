@@ -10,7 +10,7 @@ from urllib.parse import urlparse
 from urllib.request import urlretrieve
 from uuid import uuid4
 
-from ..ai_runtime import AIRuntimeMediaClient, runtime_asset
+from ..ai_runtime import AIRuntimeMediaClient, runtime_asset, studios_trace
 from ..generation import GenerationMode, StudiosGenerationProfile, resolve_generation_profile
 from ..local_config import LocalSecretStore
 from .base import MediaRequest, MediaResult, ProviderGenerationError
@@ -371,6 +371,15 @@ class FalProvider:
                     'role':request.role,
                     'generation_mode':self.generation_mode,
                 },
+                trace=studios_trace(
+                    production_id=request.production_id,
+                    episode_id=request.episode_id,
+                    show_id=request.show_id,
+                    shot_id=request.shot_id,
+                    attempt_id=request.attempt_id,
+                    role=request.role,
+                    purpose='media_generation',
+                ),
                 client_timeout_seconds=self.client_timeout_seconds,
                 poll_interval_seconds=self.poll_interval_seconds,
             )
