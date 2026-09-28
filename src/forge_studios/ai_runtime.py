@@ -14,6 +14,45 @@ class AIRuntimeError(RuntimeError):
     """Shared AI Runtime request failed."""
 
 
+def studios_trace(
+    *,
+    production_id: str | None = None,
+    episode_id: str | None = None,
+    show_id: str | None = None,
+    shot_id: str | None = None,
+    attempt_id: str | None = None,
+    role: str | None = None,
+    purpose: str | None = None,
+) -> dict[str, Any] | None:
+    """Build caller-owned Runtime attribution without adding creative semantics."""
+    if not any((production_id, episode_id, shot_id, attempt_id)):
+        return None
+    if production_id:
+        trace_id = f"production:{production_id}"
+    elif episode_id:
+        trace_id = f"episode:{episode_id}"
+    else:
+        trace_id = f"studios-shot:{shot_id or attempt_id}"
+    lineage = {
+        key: value
+        for key, value in {
+            "show_id": show_id,
+            "episode_id": episode_id,
+            "production_id": production_id,
+            "shot_id": shot_id,
+            "attempt_id": attempt_id,
+        }.items()
+        if value
+    }
+    return {
+        "source_system": "forge-studios",
+        "trace_id": trace_id,
+        "role": role,
+        "purpose": purpose,
+        "lineage": lineage,
+    }
+
+
 class AIRuntimeMediaClient:
     def __init__(
         self,
@@ -52,6 +91,7 @@ class AIRuntimeMediaClient:
         arguments: dict[str, Any],
         assets: dict[str, dict[str, str]] | None = None,
         metadata: dict[str, Any] | None = None,
+        trace: dict[str, Any] | None = None,
         client_timeout_seconds: float | None = None,
         poll_interval_seconds: float | None = None,
     ) -> dict[str, Any]:
@@ -62,6 +102,8 @@ class AIRuntimeMediaClient:
             "assets": assets or {},
             "metadata": metadata or {},
         }
+        if trace is not None:
+            body["trace"] = trace
         if client_timeout_seconds is not None:
             body["client_timeout_seconds"] = client_timeout_seconds
         if poll_interval_seconds is not None:
@@ -111,3 +153,6 @@ def runtime_asset(
         "data_base64": base64.b64encode(path.read_bytes()).decode("ascii"),
     }
     return f"asset://{asset_id}"
+
+
+__all__ = ["AIRuntimeError", "AIRuntimeMediaClient", "runtime_asset", "studios_trace"]
