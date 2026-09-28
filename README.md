@@ -40,6 +40,22 @@ sources of truth.
 Forge Studios does not choose an LLM, invent canon, add story events, or repair creative
 intent.
 
+## Shared evidence and research lineage
+
+Studios always writes its complete local JSONL telemetry. If
+`AGENTICFORGE_EVIDENCE_TOKEN` is configured, it also mirrors those authoritative
+production events to AgenticForge Platform. Central events retain production/episode/
+shot/attempt/asset lineage but replace repeated prompt bodies with SHA-256-addressed
+evidence references.
+
+fal image/video calls and episode-finishing Sonilo calls carry the same production trace
+through AI Runtime. Runtime therefore records provider execution facts while Studios
+continues to own the deterministic media request and production outcome.
+
+Evidence mirroring is best-effort and is not a production gate. Default Platform rights
+permit internal research while training/redistribution/resale remain review-required
+until explicitly approved.
+
 ## Install
 
 ```bash
