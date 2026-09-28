@@ -1,2 +1,0 @@
-[console_scripts]
-forge-studios = forge_studios.entrypoint:main
