@@ -8,6 +8,10 @@ class MediaRequest:
     shot_id: str
     prompt: str
     role: str='storyboard'
+    production_id: str|None=None
+    episode_id: str|None=None
+    show_id: str|None=None
+    attempt_id: str|None=None
     reference_assets: tuple[str,...]=()
     start_frame_asset: str|None=None
     end_frame_asset: str|None=None

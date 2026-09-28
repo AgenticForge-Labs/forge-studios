@@ -163,11 +163,25 @@ class AnimatorService:
             reference_ids.append(start_id)
         reference_inputs=_reference_inputs(package,shot,reference_ids,start_id=start_id); boundary_inputs=_boundary_inputs(shot,start_id=start_id,end_id=end_id)
         refs=[self._asset_uri(package,a) for a in reference_ids]
-        request=MediaRequest(kind='video' if role=='video' else 'image',shot_id=shot_id,role=role,prompt=prompt,reference_assets=tuple(refs),start_frame_asset=self._asset_uri(package,start_id) if start_id else None,end_frame_asset=self._asset_uri(package,end_id) if end_id else None,duration_seconds=shot.duration_seconds if role=='video' else None,options=dict(shot.provider_options))
+        request=MediaRequest(
+            kind='video' if role=='video' else 'image',
+            shot_id=shot_id,
+            role=role,
+            prompt=prompt,
+            production_id=package.production_id,
+            episode_id=package.episode_id,
+            show_id=package.show_id,
+            reference_assets=tuple(refs),
+            start_frame_asset=self._asset_uri(package,start_id) if start_id else None,
+            end_frame_asset=self._asset_uri(package,end_id) if end_id else None,
+            duration_seconds=shot.duration_seconds if role=='video' else None,
+            options=dict(shot.provider_options),
+        )
         provider_generation=_provider_generation_settings(self.provider)
         shot_features={'duration_seconds':shot.duration_seconds,'purpose':shot.purpose,'visual':shot.visual,'entity_ids':shot.entity_ids,'camera':shot.camera,'visual_constraints':shot.visual_constraints,'performance_intent':shot.performance_intent,'edit_intent':shot.edit_intent,'execution_route':shot.execution_route,'render_strategy':shot.render_strategy,'frame_plan':shot.frame_plan.model_dump(mode='json'),'source_beat_ids':shot.source_beat_ids}
         attempt=GenerationAttempt(production_id=package.production_id,episode_id=package.episode_id,shot_id=shot_id,role=role,provider=self.provider.name,prompt=prompt,reference_asset_ids=reference_ids,options=shot.provider_options,metadata={'shot_features':shot_features,'reference_inputs':reference_inputs,'boundary_inputs':boundary_inputs,'provider_generation':provider_generation,'requested_duration_seconds':request.duration_seconds})
-        _persist_generation_attempt(package,attempt); self.telemetry.emit('generation_attempt.started',**attempt.model_dump(mode='json')); started=time.perf_counter()
+        request.attempt_id=attempt.attempt_id
+        _persist_generation_attempt(package,attempt); self.telemetry.emit('generation_attempt.started',show_id=package.show_id,**attempt.model_dump(mode='json')); started=time.perf_counter()
         try: results=self.provider.generate(request)
         except Exception as exc:
             diagnostics=exc.as_dict() if isinstance(exc,ProviderGenerationError) else {'provider':self.provider.name,'model':_provider_model_for_request(self.provider,request,role),'request_id':None,'failure_class':'provider_error'}
@@ -175,19 +189,19 @@ class AnimatorService:
             diagnostics.update({'shot_id':shot_id,'role':role,'prompt':prompt,'reference_asset_ids':list(reference_ids),'reference_inputs':reference_inputs,'boundary_inputs':boundary_inputs,'provider_options':dict(shot.provider_options),'provider_generation':provider_generation,'requested_duration_seconds':request.duration_seconds,'recovery':recovery,'next_isolation_step':recovery.get('next_isolation_step')})
             attempt.model=diagnostics.get('model'); attempt.metadata['failure_diagnostics']=diagnostics
             if failure_class=='content_policy' or 'content_policy_violation' in str(exc):
-                self.telemetry.emit('generation_prompt.rejected',production_id=package.production_id,episode_id=package.episode_id,shot_id=shot_id,role=role,provider=self.provider.name,code='PROVIDER_CONTENT_POLICY_REJECTION',request_id=diagnostics.get('request_id'),reference_asset_ids=list(reference_ids),reference_inputs=reference_inputs,next_isolation_step=recovery.get('next_isolation_step'),guidance='Do not rewrite the story automatically. Diagnose prompt versus reference-image false positives using the recorded isolation plan.')
+                self.telemetry.emit('generation_prompt.rejected',show_id=package.show_id,production_id=package.production_id,episode_id=package.episode_id,shot_id=shot_id,role=role,provider=self.provider.name,code='PROVIDER_CONTENT_POLICY_REJECTION',request_id=diagnostics.get('request_id'),reference_asset_ids=list(reference_ids),reference_inputs=reference_inputs,next_isolation_step=recovery.get('next_isolation_step'),guidance='Do not rewrite the story automatically. Diagnose prompt versus reference-image false positives using the recorded isolation plan.')
                 exc.add_note('Provider content-policy rejection: use failure_diagnostics.recovery to isolate prompt/reference causes; Forge Studios does not use an LLM to rewrite prompts.')
-            attempt.outcome='failed'; attempt.error=str(exc); attempt.latency_ms=(time.perf_counter()-started)*1000; _persist_generation_attempt(package,attempt); self.telemetry.emit('generation_attempt.failed',**attempt.model_dump(mode='json')); raise
+            attempt.outcome='failed'; attempt.error=str(exc); attempt.latency_ms=(time.perf_counter()-started)*1000; _persist_generation_attempt(package,attempt); self.telemetry.emit('generation_attempt.failed',show_id=package.show_id,**attempt.model_dump(mode='json')); raise
         assets=[]
         for result in results:
             source_ids=list(dict.fromkeys(reference_ids + ([start_id] if start_id else []) + ([end_id] if end_id else []))); metadata=dict(result.metadata)
             metadata['generation']={'attempt_id':attempt.attempt_id,'role':role,'prompt':prompt,'provider':result.provider,'model':result.model,'mode':metadata.get('generation_mode') or provider_generation.get('mode'),'options':dict(shot.provider_options),'provider_profile':provider_generation,'provider_settings':metadata.get('provider_settings'),'requested_duration_seconds':request.duration_seconds,'actual_media':metadata.get('actual_media'),'reference_asset_ids':list(reference_ids),'reference_inputs':reference_inputs,'boundary_inputs':boundary_inputs,'start_asset_id':start_id,'end_asset_id':end_id,'shot_features':shot_features}
             asset=AssetRecord(asset_id=f'asset_{uuid4().hex}',kind=ROLE_KIND[role],uri=result.uri,status='candidate',authority='generated',episode_id=package.episode_id,shot_id=shot_id,attempt_id=attempt.attempt_id,provider=result.provider,model=result.model,source_asset_ids=source_ids,metadata=metadata)
             package.assets.append(asset); assets.append(asset); target={'start_frame':'start_frame_asset_ids','end_frame':'end_frame_asset_ids','video':'candidate_clip_asset_ids'}[role]; getattr(shot,target).append(asset.asset_id)
-            self.telemetry.emit('asset.generated',production_id=package.production_id,episode_id=package.episode_id,shot_id=shot_id,attempt_id=attempt.attempt_id,asset_id=asset.asset_id,role=role,kind=asset.kind,provider=asset.provider,model=asset.model,source_asset_ids=source_ids,prompt=prompt,options=shot.provider_options,reference_inputs=reference_inputs,boundary_inputs=boundary_inputs,shot_features=shot_features,generation_mode=metadata['generation'].get('mode'),provider_settings=metadata.get('provider_settings'),actual_media=metadata.get('actual_media'))
+            self.telemetry.emit('asset.generated',show_id=package.show_id,production_id=package.production_id,episode_id=package.episode_id,shot_id=shot_id,attempt_id=attempt.attempt_id,asset_id=asset.asset_id,role=role,kind=asset.kind,provider=asset.provider,model=asset.model,source_asset_ids=source_ids,prompt=prompt,options=shot.provider_options,reference_inputs=reference_inputs,boundary_inputs=boundary_inputs,shot_features=shot_features,generation_mode=metadata['generation'].get('mode'),provider_settings=metadata.get('provider_settings'),actual_media=metadata.get('actual_media'))
         attempt.outcome='succeeded'; attempt.asset_ids=[a.asset_id for a in assets]; attempt.model=assets[0].model if assets else None; attempt.latency_ms=(time.perf_counter()-started)*1000
         if assets: attempt.metadata['actual_generation']={'mode':assets[0].metadata.get('generation',{}).get('mode'),'model':assets[0].model,'provider_settings':assets[0].metadata.get('provider_settings'),'actual_media':assets[0].metadata.get('actual_media')}
-        _persist_generation_attempt(package,attempt); self.telemetry.emit('generation_attempt.succeeded',**attempt.model_dump(mode='json')); return assets
+        _persist_generation_attempt(package,attempt); self.telemetry.emit('generation_attempt.succeeded',show_id=package.show_id,**attempt.model_dump(mode='json')); return assets
     @staticmethod
     def _asset_uri(package: EpisodePackage, asset_id: str|None) -> str:
         if not asset_id: raise KeyError('missing asset id')

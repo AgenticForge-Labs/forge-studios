@@ -30,6 +30,7 @@ def test_runtime_client_posts_to_shared_media_endpoint():
     def handler(request: httpx.Request) -> httpx.Response:
         seen["path"] = request.url.path
         seen["authorization"] = request.headers["authorization"]
+        seen["body"] = __import__("json").loads(request.content)
         return httpx.Response(
             200,
             json={
@@ -47,13 +48,22 @@ def test_runtime_client_posts_to_shared_media_endpoint():
         token="runtime-token",
         client=client,
     )
-    value = runtime.generate(model="fal-ai/test", arguments={"prompt": "exact"})
+    value = runtime.generate(
+        model="fal-ai/test",
+        arguments={"prompt": "exact"},
+        trace={
+            "source_system": "forge-studios",
+            "trace_id": "production:run-1",
+            "role": "video",
+            "lineage": {"production_id": "run-1"},
+        },
+    )
     client.close()
 
-    assert seen == {
-        "path": "/v1/media/generate",
-        "authorization": "Bearer runtime-token",
-    }
+    assert seen["path"] == "/v1/media/generate"
+    assert seen["authorization"] == "Bearer runtime-token"
+    assert seen["body"]["trace"]["trace_id"] == "production:run-1"
+    assert seen["body"]["arguments"]["prompt"] == "exact"
     assert value["request_id"] == "req-1"
 
 
@@ -85,6 +95,10 @@ def test_fal_provider_keeps_prompt_semantics_and_sends_local_refs_through_runtim
             shot_id="shot-1",
             role="start_frame",
             prompt="Exact authored prompt with @image1 unchanged.",
+            production_id="run-1",
+            episode_id="ep-1",
+            show_id="forge-born",
+            attempt_id="attempt-1",
             reference_assets=(str(reference),),
         )
     )
@@ -94,6 +108,19 @@ def test_fal_provider_keeps_prompt_semantics_and_sends_local_refs_through_runtim
     assert call["arguments"]["image_urls"] == ["asset://reference_0"]
     assert base64.b64decode(call["assets"]["reference_0"]["data_base64"]) == b"reference-bytes"
     assert call["metadata"]["caller"] == "forge-studios"
+    assert call["trace"] == {
+        "source_system": "forge-studios",
+        "trace_id": "production:run-1",
+        "role": "start_frame",
+        "purpose": "media_generation",
+        "lineage": {
+            "show_id": "forge-born",
+            "episode_id": "ep-1",
+            "production_id": "run-1",
+            "shot_id": "shot-1",
+            "attempt_id": "attempt-1",
+        },
+    }
     assert results[0].model == "fal-ai/flux-2/flash/edit"
     assert results[0].metadata["transport"] == "agenticforge-ai-runtime"
     assert results[0].metadata["request_id"] == "fal-123"
@@ -123,10 +150,24 @@ def test_sonilo_scoring_uses_runtime_for_local_picture_lock(tmp_path, monkeypatc
         prompt="Show style",
         runtime_client=runtime,
         progress=None,
+        production_id="run-1",
+        episode_id="ep-1",
+        show_id="forge-born",
     )
 
     call = runtime.calls[0]
     assert call["arguments"]["video_url"] == "asset://picture_lock"
     assert call["arguments"]["prompt"] == "Show style"
+    assert call["trace"] == {
+        "source_system": "forge-studios",
+        "trace_id": "production:run-1",
+        "role": "music",
+        "purpose": "music_generation",
+        "lineage": {
+            "show_id": "forge-born",
+            "episode_id": "ep-1",
+            "production_id": "run-1",
+        },
+    }
     assert base64.b64decode(call["assets"]["picture_lock"]["data_base64"]) == b"video-bytes"
     assert result.read_bytes() == b"music-bytes"

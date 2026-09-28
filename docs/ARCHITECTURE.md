@@ -136,6 +136,25 @@ Manual and automatic execution use the same primitives. Director applies explici
 permissions for generation, approval, paid video, and retries. Creative revision remains
 outside Studios.
 
+## Shared evidence and research lineage
+
+The complete local Studios JSONL telemetry remains the authoritative execution log.
+When configured, Studios mirrors each event into Platform's append-oriented event stream.
+Platform stores and links the data but does not reinterpret production semantics.
+
+Repeated prompt strings remain present in the local event and are stored once centrally
+as content-addressed evidence. Central events reference that evidence by ID/hash instead
+of duplicating prompt bodies. Stable production, episode, shot, attempt, asset, and render
+identity remains directly queryable.
+
+AI Runtime receives the same production lineage for fal image/video and finishing calls,
+so its exact provider request/response and execution usage/cost can be joined to Studios
+attempt/review/render outcomes.
+
+Forge Researcher consumes these authoritative producer records and external outcome
+observations to build derived research tables, experiments, datasets, and models. Those
+derivatives do not replace Studios production history.
+
 ## Shared provider execution
 
 ```text
