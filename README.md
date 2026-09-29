@@ -9,7 +9,6 @@ story intent.
 
 ```text
 EpisodePackage
-├── beats[]
 ├── shots[]
 └── assets[]
 ```
