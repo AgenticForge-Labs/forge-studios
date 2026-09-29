@@ -37,7 +37,6 @@ class Shot(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     shot_id: str
-    beat_id: str
     duration_seconds: float = Field(gt=0, le=20)
     site_id: str
     site_area_id: str | None = None
@@ -62,7 +61,7 @@ class Shot(BaseModel):
 
     # Internal adapters for deterministic Studios services. They are excluded from
     # EpisodePackage serialization and are not creative LLM fields.
-    source_beat_ids: list[str] = Field(default_factory=list, exclude=True)
+    source_shot_ids: list[str] = Field(default_factory=list, exclude=True)
     purpose: str = Field(default="", exclude=True)
     visual: str = Field(default="", exclude=True)
     entity_ids: list[str] = Field(default_factory=list, exclude=True)
@@ -88,7 +87,7 @@ class Shot(BaseModel):
             "start_and_end" if (self.end_frame_prompt or "").strip() else "start_only"
         )
         self.frame_plan_mode = mode
-        self.source_beat_ids = [self.beat_id]
+        self.source_shot_ids = [self.shot_id]
         self.visual = self.end_frame_prompt or self.start_frame_prompt
         self.entity_ids = list(dict.fromkeys([
             *self.character_ids,
@@ -147,7 +146,6 @@ class EpisodePackage(BaseModel):
     themes: list[str] = Field(default_factory=list)
     status: str = "prompt_ready"
     target_duration_seconds: float
-    beats: list[dict[str, Any]] = Field(default_factory=list)
     shots: list[Shot] = Field(default_factory=list)
     assets: list[AssetRecord] = Field(default_factory=list)
     trace: dict[str, Any] = Field(default_factory=dict)
