@@ -72,7 +72,7 @@ def generate_boundary_candidates(
 
     `start_only` generates only the visual start anchor. `start_and_end` additionally
     generates the authored destination frame. The current Forge Born workflow uses
-    independent start-only beats; endpoint chaining remains a future/optional mode.
+    independent start-only shots; endpoint chaining remains a future/optional mode.
     """
     generated = []
     shots = package.shots
@@ -197,7 +197,7 @@ def build_storyboard(package: EpisodePackage, path: str | Path) -> Path:
 <h3>{html.escape(shot.shot_id)} · {shot.duration_seconds:g}s · {html.escape(shot.frame_plan.mode)}</h3>
 {visual}
 {motion}
-<p class="planning-note"><b>Beat:</b> {html.escape(shot.beat_id)} · <b>Site:</b> {html.escape(shot.site_id)} · <b>Status:</b> {html.escape(shot.status)}</p>
+<p class="planning-note"><b>Shot:</b> {html.escape(shot.shot_id)} · <b>Site:</b> {html.escape(shot.site_id)} · <b>Status:</b> {html.escape(shot.status)}</p>
 </article>''')
     doc = f'''<!doctype html><meta charset="utf-8"><title>{html.escape(package.title)} production storyboard</title>
 <style>{_storyboard_styles()}</style>
