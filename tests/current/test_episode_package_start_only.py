@@ -17,14 +17,12 @@ def package() -> EpisodePackage:
         "arc": "Ember wakes and begins to investigate.",
         "target_duration_seconds": 15,
         "beats": [{
-            "beat_id": "wake",
             "site_id": "place_forge",
             "duration_seconds": 15,
             "narrative": "Ember wakes and looks around.",
         }],
         "shots": [{
             "shot_id": "wake",
-            "beat_id": "wake",
             "duration_seconds": 15,
             "site_id": "place_forge",
             "character_ids": ["character_ember"],
@@ -119,11 +117,9 @@ def inherited_start_only_package() -> EpisodePackage:
         "premise": "A reveal flows directly into Ember's next action.",
         "arc": "The camera reveals scale, then Ember jumps.",
         "target_duration_seconds": 30,
-        "beats": [{"beat_id": "reveal"}, {"beat_id": "jump"}],
         "shots": [
             {
                 "shot_id": "reveal",
-                "beat_id": "reveal",
                 "duration_seconds": 15,
                 "site_id": "place_forge",
                 "frame_plan_mode": "start_and_end",
@@ -133,7 +129,6 @@ def inherited_start_only_package() -> EpisodePackage:
             },
             {
                 "shot_id": "jump",
-                "beat_id": "jump",
                 "duration_seconds": 15,
                 "site_id": "place_forge",
                 "frame_plan_mode": "start_only",
