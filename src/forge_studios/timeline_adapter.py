@@ -31,7 +31,7 @@ def timeline_from_episode_package(package:EpisodePackage,*,rate:float=30.0,requi
         intent=shot.edit_intent
         metadata={
             'production_id':package.production_id,'episode_id':package.episode_id,'revision':package.revision,
-            'beat_id':shot.beat_id,'site_id':shot.site_id,'shot_id':shot.shot_id,'asset_id':asset_id,
+            'site_id':shot.site_id,'shot_id':shot.shot_id,'asset_id':asset_id,
             'edit_intent':dict(intent),'transition_in':intent.get('transition_in'),'transition_out':intent.get('transition_out'),
             'hold_after_seconds':float(intent.get('hold_after_seconds') or 0),'music_cue':intent.get('music_cue'),
             'sound_effects':list(intent.get('sound_effects') or []),'caption_dialogue':False,
