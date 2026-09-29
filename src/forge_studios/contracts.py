@@ -37,7 +37,6 @@ class Shot(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     shot_id: str
-    beat_id: str
     duration_seconds: float = Field(gt=0, le=20)
     site_id: str
     site_area_id: str | None = None
@@ -62,7 +61,7 @@ class Shot(BaseModel):
 
     # Internal adapters for deterministic Studios services. They are excluded from
     # EpisodePackage serialization and are not creative LLM fields.
-    source_beat_ids: list[str] = Field(default_factory=list, exclude=True)
+    source_requirement_ids: list[str] = Field(default_factory=list, exclude=True)
     purpose: str = Field(default="", exclude=True)
     visual: str = Field(default="", exclude=True)
     entity_ids: list[str] = Field(default_factory=list, exclude=True)
@@ -88,7 +87,7 @@ class Shot(BaseModel):
             "start_and_end" if (self.end_frame_prompt or "").strip() else "start_only"
         )
         self.frame_plan_mode = mode
-        self.source_beat_ids = [self.beat_id]
+        self.source_requirement_ids = [self.shot_id]
         self.visual = self.end_frame_prompt or self.start_frame_prompt
         self.entity_ids = list(dict.fromkeys([
             *self.character_ids,
@@ -147,7 +146,6 @@ class EpisodePackage(BaseModel):
     themes: list[str] = Field(default_factory=list)
     status: str = "prompt_ready"
     target_duration_seconds: float
-    beats: list[dict[str, Any]] = Field(default_factory=list)
     shots: list[Shot] = Field(default_factory=list)
     assets: list[AssetRecord] = Field(default_factory=list)
     trace: dict[str, Any] = Field(default_factory=dict)
@@ -160,27 +158,13 @@ class EpisodePackage(BaseModel):
         asset_ids = [asset.asset_id for asset in self.assets]
         if len(asset_ids) != len(set(asset_ids)):
             raise ValueError("asset ids must be unique")
-        known_beats = {
-            str(beat.get("beat_id"))
-            for beat in self.beats
-            if isinstance(beat, dict) and beat.get("beat_id")
-        }
         known_assets = set(asset_ids)
-        covered: set[str] = set()
         for shot in self.shots:
-            if shot.beat_id not in known_beats:
-                raise ValueError(
-                    f"shot {shot.shot_id!r} references unknown beat {shot.beat_id!r}"
-                )
-            covered.add(shot.beat_id)
             missing_assets = set(shot.reference_asset_ids) - known_assets
             if missing_assets:
                 raise ValueError(
                     f"shot {shot.shot_id!r} references unknown assets: {sorted(missing_assets)}"
                 )
-        missing_beats = known_beats - covered
-        if missing_beats:
-            raise ValueError(f"planned beats are not covered by package shots: {sorted(missing_beats)}")
         total = sum(shot.duration_seconds for shot in self.shots)
         if abs(total - self.target_duration_seconds) > 0.5:
             raise ValueError(

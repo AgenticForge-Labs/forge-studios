@@ -178,7 +178,7 @@ class AnimatorService:
             options=dict(shot.provider_options),
         )
         provider_generation=_provider_generation_settings(self.provider)
-        shot_features={'duration_seconds':shot.duration_seconds,'purpose':shot.purpose,'visual':shot.visual,'entity_ids':shot.entity_ids,'camera':shot.camera,'visual_constraints':shot.visual_constraints,'performance_intent':shot.performance_intent,'edit_intent':shot.edit_intent,'execution_route':shot.execution_route,'render_strategy':shot.render_strategy,'frame_plan':shot.frame_plan.model_dump(mode='json'),'source_beat_ids':shot.source_beat_ids}
+        shot_features={'duration_seconds':shot.duration_seconds,'purpose':shot.purpose,'visual':shot.visual,'entity_ids':shot.entity_ids,'camera':shot.camera,'visual_constraints':shot.visual_constraints,'performance_intent':shot.performance_intent,'edit_intent':shot.edit_intent,'execution_route':shot.execution_route,'render_strategy':shot.render_strategy,'frame_plan':shot.frame_plan.model_dump(mode='json'),'source_requirement_ids':shot.source_requirement_ids}
         attempt=GenerationAttempt(production_id=package.production_id,episode_id=package.episode_id,shot_id=shot_id,role=role,provider=self.provider.name,prompt=prompt,reference_asset_ids=reference_ids,options=shot.provider_options,metadata={'shot_features':shot_features,'reference_inputs':reference_inputs,'boundary_inputs':boundary_inputs,'provider_generation':provider_generation,'requested_duration_seconds':request.duration_seconds})
         request.attempt_id=attempt.attempt_id
         _persist_generation_attempt(package,attempt); self.telemetry.emit('generation_attempt.started',show_id=package.show_id,**attempt.model_dump(mode='json')); started=time.perf_counter()

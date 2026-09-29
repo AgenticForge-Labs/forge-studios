@@ -23,7 +23,7 @@ class ShortFormUnit(BaseModel):
     model_config = ConfigDict(extra="allow")
     short_id: str
     title: str
-    source_beat_ids: list[str] = Field(default_factory=list)
+    source_requirement_ids: list[str] = Field(default_factory=list)
     source_scene_ids: list[str] = Field(default_factory=list)
     source_shot_ids: list[str] = Field(default_factory=list)
     target_platforms: list[str] = Field(default_factory=list)
