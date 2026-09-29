@@ -12,13 +12,12 @@ regenerate it with current Forge Worlds.
 
 ```text
 EpisodePackage
-├── beats[]
 ├── shots[]
 └── assets[]
 ```
 
-`package.shots` is the master narrative/production order. There is no active
-`scenes[]` layer.
+`package.shots` is the single narrative/production order. Seed requirement identity is
+carried directly by shot IDs; there is no parallel `beats[]` or active `scenes[]` layer.
 
 The current public package marker is exactly:
 
