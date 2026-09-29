@@ -1,0 +1,263 @@
+\documentclass{article}
+
+\usepackage{arxiv}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{amsmath}
+\usepackage{microtype}
+\usepackage{natbib}
+\usepackage{enumitem}
+\usepackage{xcolor}
+
+\title{Resolving Persistent Worlds Through Agentic Story and Video Creation:\\
+A Review of Narrative Agents, Cinematic Systems, 3D Simulation, and Generative World Models}
+
+\author{
+Larry York \\
+AgenticForge Labs
+}
+
+\date{September 2026}
+\renewcommand{\headeright}{A Preprint}
+\renewcommand{\undertitle}{A Preprint}
+\renewcommand{\shorttitle}{Resolving Persistent Worlds}
+
+\hypersetup{
+  pdftitle={Resolving Persistent Worlds Through Agentic Story and Video Creation},
+  pdfauthor={Larry York},
+  pdfkeywords={persistent worlds, agentic storytelling, generative video, multi-agent systems, world models, generative games, 3D simulation}
+}
+
+\newcommand{\state}[1]{\textsc{#1}}
+\newcolumntype{Y}{>{\raggedright\arraybackslash}X}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Large language models and generative media models are increasingly embedded in systems that do more than produce isolated text passages, images, or video clips. Narrative agents maintain character memories and simulate interactions; multi-agent filmmaking systems plan shots, preserve visual references, critique generations, and revise failed outputs; language-model agents can construct and inspect editable 3D scenes governed by physics; and learned world models increasingly generate action-conditioned, interactive visual environments. These developments have largely been studied as separate problems in creative writing, video generation, computer graphics, embodied AI, and games. This review argues that they are converging on a common systems problem: the construction and resolution of persistent generative worlds. We review representative work in agentic story generation and fictional worldbuilding, agentic cinematic production and long-horizon continuity, language-driven 3D scene construction and physics-grounded simulation, and interactive generative world models. We propose a state-oriented synthesis that separates canonical world state, character belief, hypothetical planning state, and depicted or observed state. This separation clarifies why continuity cannot be solved by prompt persistence alone and why generated media should often be treated as evidence about a world rather than as the world itself. We then describe a convergent architecture in which structured state, agentic reasoning, deterministic or physics-based simulation, learned world models, and cinematic or game interfaces cooperate while retaining distinct authority. Under this view, generative film and generative games become two modes of observing and interacting with the same deeper substrate: one directs and captures a world, while the other acts within it. We conclude with open problems in state authority, causal consistency, spatial grounding, long-horizon memory, evaluation, provenance, real-time generation, and human creative control.
+\end{abstract}
+
+\keywords{persistent worlds \and agentic storytelling \and generative video \and world models \and multi-agent systems \and generative games \and 3D simulation}
+
+\section{Introduction}
+
+Generative AI has progressed rapidly from isolated media synthesis toward systems that coordinate multiple models, tools, memories, and evaluators over long horizons. In writing, hierarchical generation systems such as Dramatron and RecurrentGPT exposed the need for explicit structure and external memory beyond a single language-model context \citep{mirowski2022dramatron,zhou2023recurrentgpt}. Generative Agents, Concordia, BookWorld, StoryBox, and related systems reframed narrative as an interaction among persistent agents, memories, goals, and environments rather than a single pass of prose generation \citep{park2023generativeagents,vezhnevets2023concordia,ran2025bookworld,chen2026storybox}. More recent work makes the fictional world itself a managed object: EvolvingWorld explicitly co-evolves character and world state, while AutoWorldBuilder organizes large fictional worlds as dependency-aware concept networks subject to automated review \citep{zong2026evolvingworld,chen2026worldbuilding}.
+
+A parallel transition is occurring in generative video. Early multi-agent story-to-video systems combined specialist generation modules \citep{wang2024aesopagent,yuan2024mora,hu2024storyagent}. Newer systems increasingly resemble production organizations: MovieAgent, FilmAgent, AniMaker, MAViS, ViMax, Camera Artist, and CineCrew assign planning, cinematography, asset creation, generation, review, and repair to specialized components \citep{wu2025movieagent,xu2025filmagent,shi2025animaker,wang2025mavis,huang2026vimax,hu2026cameraartist,chen2026cinecrew}. At the same time, dedicated continuity methods maintain explicit visual memory over multiple shots \citep{zhang2025storymem,an2025onestory,elmoghany2026infinitystory}, while Google's Co-Director, CANVAS, A$^2$RD, and VQQA systems formulate long-form video as global optimization, world-state tracking, memory-guided generation, and closed-loop refinement \citep{song2026codirector,mondal2026canvas,long2026a2rd,song2026vqqa}.
+
+These trends meet a third line of research. Language models increasingly control structured 3D creation systems such as Blender, generate embodied environments, and coordinate physics-grounded dynamic scenes \citep{sun2023threedgpt,yang2023holodeck,liu2026simworlds}. In parallel, learned “world models” such as Genie, GameGen-X, Matrix-Game 2.0, and Hunyuan-GameCraft-2 generate action-conditioned visual futures and move toward real-time interactive environments \citep{bruce2024genie,che2024gamegenx,he2025matrixgame,tang2025hunyungamecraft2}. This direction increasingly overlaps with proposals for generative game engines \citep{yu2025generativegameengines,li2026pixelstostates}.
+
+The thesis of this review is that these are not merely adjacent applications of generative AI. They are partial solutions to a shared problem: \emph{how to maintain a persistent world while multiple generative and reasoning processes create stories, observations, actions, and media about it}. We use the term \emph{persistent generative world} for a system whose entities, relations, spatial organization, causal state, and history remain addressable over time and can condition future generation or interaction. The term is deliberately stronger than “consistent content” but weaker than the ontological claim implied by a “true world.” Persistence is a systems property that can be evaluated.
+
+This review therefore emphasizes interfaces and state ownership rather than ranking individual media models. We ask four questions: (1) how are worlds and characters represented; (2) how are stories planned or discovered; (3) how is continuity preserved across generated observations; and (4) how can actions and generated evidence update, but not silently overwrite, persistent state? The resulting synthesis suggests a path from agentic storytelling and filmmaking toward systems in which film, simulation, and play become different projections of a common persistent world.
+
+\section{Scope and Review Method}
+
+This paper is a narrative systems review rather than a systematic meta-analysis. We selected representative primary sources through September 2026 from four overlapping areas: LLM-based story generation and role-playing agents; multi-agent and long-form cinematic generation; language-driven 3D environment construction and physics-grounded simulation; and interactive video/world models for games and embodied AI. We also use recent surveys of narrative generation, role-playing agents, long-video storytelling, physical priors in AIGC, and embodied world models to place individual systems in context \citep{liu2026narrativesurvey,wang2026roleplaysurvey,elmoghany2025longvideosurvey,meng2025physicalpriors,li2025worldmodelsurvey}.
+
+The literature is moving rapidly and terminology is unstable. “World model” may refer to a learned dynamics model, a video predictor conditioned on action, an explicit symbolic state representation, or a broader environment simulator. “Agentic video” may denote anything from a fixed chain of LLM calls to a feedback-controlled production organization. We therefore classify systems by their operational roles rather than accepting labels at face value.
+
+\section{Persistent Worlds as a State-Management Problem}
+\label{sec:state}
+
+Long-horizon generation fails when information that should persist is left implicit in transient prompts or pixels. The problem becomes more severe as a world accumulates history: a character can possess private knowledge inconsistent with objective reality; a planned event may never occur; a generated shot may visually contradict the intended state; and a repaired image may introduce new details that later generations need to remember. Treating all of these as one undifferentiated “context” invites semantic drift.
+
+We propose four state classes that recur implicitly across the reviewed systems:
+
+\begin{enumerate}[leftmargin=*]
+  \item \textbf{Canonical world state (\state{world}).} Authoritative facts about entities, relations, locations, history, and current conditions.
+  \item \textbf{Character belief state (\state{belief}).} What a particular agent remembers, infers, desires, or incorrectly believes. Generative Agents and role-playing systems demonstrate why this cannot be collapsed into global truth \citep{park2023generativeagents,wang2026roleplaysurvey}.
+  \item \textbf{Hypothetical or planning state (\state{possible}).} Candidate futures, outlines, simulations, or production plans. These are useful for search and creativity but should not automatically mutate the world.
+  \item \textbf{Depicted or observed state (\state{depicted}).} What a generated image, video, 3D render, or interaction actually shows. It is evidence produced by an imperfect generator and may disagree with intended or canonical state.
+\end{enumerate}
+
+This separation yields a useful principle: generation is not state mutation by default. A language model can propose that a door is opened; a character can attempt to open it; a video model can depict it as open; and a physics simulator can determine whether the action succeeds. Those are distinct events. Persistent-world systems need an explicit reconciliation mechanism that decides which outcomes become authoritative.
+
+\begin{figure}[t]
+\centering
+\fbox{\begin{minipage}{0.91\linewidth}
+\centering
+\textbf{Authorial intent / world seed}\\[4pt]
+$\downarrow$\\[-1pt]
+\textbf{Persistent state and identity} $\leftrightarrow$ \textbf{Character memories / beliefs}\\[4pt]
+$\downarrow$\\[-1pt]
+\textbf{Agentic planning, simulation, and story discovery}\\[4pt]
+$\downarrow$\\[-1pt]
+\textbf{Production or interaction contract}\\[4pt]
+$\downarrow$\\[-1pt]
+\textbf{3D/physics engine or learned generative world model}\\[4pt]
+$\downarrow$\\[-1pt]
+\textbf{Depicted observations: prose, images, video, gameplay}\\[4pt]
+$\downarrow$\\[-1pt]
+\textbf{Critique, verification, and reconciliation} $\longrightarrow$ \textbf{accepted state update}
+\end{minipage}}
+\caption{A synthesis of persistent-world creation. Generative outputs are observations and proposals until a reconciliation step accepts their consequences into persistent state. The execution substrate may be a conventional 3D/physics engine, a learned world model, or a hybrid.}
+\label{fig:synthesis}
+\end{figure}
+
+\section{Agentic Story Writing and Fictional Worldbuilding}
+
+\subsection{From hierarchical writing to external narrative state}
+
+Dramatron demonstrated that hierarchical decomposition can improve long-form script generation by producing characters, locations, beats, and dialogue from higher-level structure rather than asking a language model to write an entire screenplay in one pass \citep{mirowski2022dramatron}. RecurrentGPT similarly externalizes short- and long-term natural-language memory so generation can continue beyond a fixed context window \citep{zhou2023recurrentgpt}. These systems are not persistent-world simulators, but they establish two foundations: long-form creativity benefits from explicit intermediate structure, and durable memory should live outside transient model context.
+
+Narrative-generation research has since broadened beyond pure text continuation. A recent survey organized LLM story work through narratological concepts and emphasized the value of theory-grounded evaluation rather than a single generic narrative-quality metric \citep{liu2026narrativesurvey}. For persistent worlds, this matters because continuity is necessary but not sufficient: a perfectly consistent sequence can still fail as narrative.
+
+\subsection{Characters as persistent agents}
+
+Generative Agents introduced a widely influential architecture in which agents maintain episodic memories, retrieve relevant experiences, form higher-level reflections, plan, and act in a shared environment \citep{park2023generativeagents}. Concordia separates autonomous actors from a Game Master that mediates the environment and grounds proposed actions in physical, social, or digital space \citep{vezhnevets2023concordia}. This division is especially important for persistent-world design because it separates an actor's natural-language intent from the mechanism that determines its consequences.
+
+A character-simulation approach can also improve authored storytelling. \citet{yu2025charactersimulation} separate role-play from rewriting: character agents enact a narrative plan, then a writer model transforms the interaction trace into prose. BookWorld reconstructs fictional settings from novels as interactive agent societies, including dynamic characters, geography, and worldview constraints \citep{ran2025bookworld}. StoryBox moves further toward emergent narrative by allowing agents to interact in a dynamic sandbox, using the resulting events as material for long-form stories \citep{chen2026storybox}. These systems suggest that narrative need not be planned only top-down; an author can establish constraints and motives, simulate possible trajectories, and then select or rewrite interesting outcomes.
+
+\subsection{World state becomes a first-class object}
+
+EvolvingWorld explicitly models long-horizon co-evolution between character profiles and a world model containing global, location, and entity state \citep{zong2026evolvingworld}. Its open-schema design is notable: different fictional universes need not share a fixed list of state variables. AutoWorldBuilder addresses a complementary problem at creation time. It represents fictional worlds as structured concept networks, schedules dependent generation tasks, compresses context hierarchically, detects conflicts, and assigns specialized auditor agents to iterative review \citep{chen2026worldbuilding}. Together, these systems move worldbuilding from prose-document generation toward managed knowledge and state.
+
+The separation between proposal and acceptance is a recurring pattern. Creative agents are useful precisely because they can produce alternatives, speculate, and disagree. A robust world model therefore benefits from treating agent output as a proposed delta rather than direct mutation. This is analogous to software transaction semantics: changes become durable only after validation against constraints and current state.
+
+\section{Agentic Cinematic Production}
+
+\subsection{From chains of generators to production organizations}
+
+Long-video storytelling has traditionally been studied as an extension problem for video models, with challenges in duration, character consistency, scene consistency, motion, and cinematic quality \citep{elmoghany2025longvideosurvey}. Agentic systems add an orchestration layer above the generator. AesopAgent and Mora were early examples of multi-module story-to-video production \citep{wang2024aesopagent,yuan2024mora}; StoryAgent assigned specialized agents to customized storytelling-video subtasks with an emphasis on protagonist consistency \citep{hu2024storyagent}.
+
+The newer generation increasingly resembles a film crew. MovieAgent uses hierarchical multi-agent planning for scenes, cinematography, and character interactions \citep{wu2025movieagent}. FilmAgent performs scriptwriting, cinematography, acting, and directing inside virtual 3D spaces \citep{xu2025filmagent}. MAViS coordinates agents across script writing, shot design, character modeling, keyframe generation, animation, and audio \citep{wang2025mavis}. ViMax combines hierarchical narrative planning with retrieval and dependency-aware tracking of character and environmental state while VLM-guided agents monitor narrative and visual quality \citep{huang2026vimax}. Camera Artist adds an explicit cinematography-shot agent and recursively develops adjacent shots using cinematic language \citep{hu2026cameraartist}. One Sentence, One Drama combines multi-agent story development with 3D-grounded first-frame generation to reduce layout and character-position drift \citep{shi2026onedrama}.
+
+These systems illustrate an important transition. The unit of automation is no longer “generate a video.” It is a production process containing decisions that have different semantics, costs, and failure modes. Planning, reference selection, generation, critique, approval, editing, and finishing need not be owned by the same model.
+
+\subsection{Structured production contracts}
+
+CineCrew makes this transition especially explicit. Its FilmDSL is a structured intermediate representation between screenplay and media generators, carrying shot and camera directives, assets, continuity requirements, and persona cues; agents coordinate planning, generation, critique, and targeted repair through this shared specification \citep{chen2026cinecrew}. The Script is All You Need similarly places an executable cinematic script between dialogue and long-horizon video synthesis, using specialized scripting, directing, and criticism stages \citep{mu2026script}.
+
+This suggests a general architectural rule for persistent worlds: semantic reasoning should often terminate in an explicit production contract before expensive or consequential execution. The contract makes dependencies inspectable, supports deterministic validation, and prevents downstream agents from silently rewriting upstream creative intent.
+
+\subsection{Visual memory and long-range continuity}
+
+Some continuity problems are better addressed within or immediately adjacent to the video generator. StoryMem maintains a dynamic bank of historical keyframes and conditions later shots on selected memories \citep{zhang2025storymem}. OneStory retrieves semantically relevant frames from earlier shots and uses adaptive memory to preserve long-range cross-shot information \citep{an2025onestory}. InfinityStory explicitly separates world/background consistency from character-aware shot transitions while targeting effectively unbounded continuation \citep{elmoghany2026infinitystory}. These approaches replace naive reliance on the immediately preceding frame with selective retrieval from a longer visual history.
+
+Google's 2026 suite develops the same idea at multiple levels. Co-Director treats agentic video storytelling as global optimization with hierarchical creative steering and multimodal evaluation \citep{song2026codirector}. CANVAS maintains structured representations of characters, locations, and object state together with persistent visual memory \citep{mondal2026canvas}. A$^2$RD generates long videos through a Retrieve--Synthesize--Refine--Update loop with multimodal video memory and adaptive segment-generation modes \citep{long2026a2rd}. VQQA generates visual questions and uses VLM critiques as natural-language “semantic gradients” for black-box iterative prompt refinement \citep{song2026vqqa}. Collectively, these systems treat continuity as a feedback-controlled process rather than a one-time prompt-engineering problem.
+
+\subsection{Editing as an agentic problem}
+
+VideoAgent extends agentic reasoning into post-production. It decomposes editing intent, dynamically selects tools, creates graph-structured workflows, and evaluates its own intermediate plans and outputs \citep{zhou2026videoagent}. This matters because a persistent-world pipeline should not stop at clip generation. Editorial choices establish temporal relationships among observations of the world and can conceal, reveal, or accidentally create apparent continuity failures. Editing is therefore another downstream consumer of narrative and production state, not merely file concatenation.
+
+\begin{table}[t]
+\caption{Representative system families and the state they make explicit. The table emphasizes architectural roles rather than performance ranking.}
+\label{tab:families}
+\small
+\begin{tabularx}{\linewidth}{p{0.18\linewidth} Y Y}
+\toprule
+\textbf{Family} & \textbf{Representative systems} & \textbf{Persistent-world contribution} \\
+\midrule
+Narrative planning & Dramatron, RecurrentGPT & Hierarchy and external long-term textual memory \\
+Character simulation & Generative Agents, Concordia, BookWorld, StoryBox & Agent memory, goals, interaction traces, environment mediation \\
+Worldbuilding & EvolvingWorld, AutoWorldBuilder & Explicit evolving world state, open schemas, dependency graphs, conflict review \\
+Agentic filmmaking & MovieAgent, MAViS, ViMax, Camera Artist, CineCrew & Specialized production roles, shot plans, production IRs, critique and repair \\
+Visual continuity & CANVAS, A$^2$RD, StoryMem, OneStory, InfinityStory & Persistent visual/world memory and retrieval across non-adjacent shots \\
+3D/physics creation & 3D-GPT, Holodeck, SimWorlds & Editable geometry, spatial constraints, deterministic verification, physical dynamics \\
+Interactive world models & Genie, GameGen-X, Matrix-Game 2.0, Hunyuan-GameCraft-2 & Action-conditioned visual futures and increasingly real-time interaction \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\section{From Narrative Worlds to 3D Worlds With Physics}
+
+Text and video pipelines can preserve descriptions of geometry without possessing geometry. This becomes a limiting distinction when a story depends on scale, occlusion, reachability, collision, camera visibility, articulated mechanisms, or other physical relations. A persistent world becomes easier to reason about when at least some of its state is represented in a spatial substrate rather than repeatedly reconstructed from prose or pixels.
+
+3D-GPT showed how multiple LLM agents can decompose natural-language instructions and drive procedural 3D modeling in Blender \citep{sun2023threedgpt}. Holodeck uses language models to infer spatial relations and optimize the placement of retrieved 3D assets in embodied environments \citep{yang2023holodeck}. These systems demonstrate that LLMs can act as semantic planners for explicit 3D scene representations.
+
+SimWorlds extends this direction from static scenes to dynamic, editable 4D scenes in Blender. Its planner--coder--reviewer organization coordinates layout, cameras, lighting, rigid bodies, liquids, particles, and articulated mechanisms. Importantly, the framework combines LLM reasoning with a deterministic verifier and runtime-state inspection rather than trusting rendered appearance alone \citep{liu2026simworlds}. This is a concrete example of an architecture in which probabilistic agents express intent and construct programs while a physics-capable execution environment remains authoritative for state evolution. The broader literature on physical priors in generative AI likewise argues that perceptual plausibility alone is insufficient for physical consistency \citep{meng2025physicalpriors}.
+
+For storytelling, physics need not imply photorealistic simulation of every detail. Even lightweight explicit state can answer questions that are difficult to resolve reliably from prompts: whether two characters can occupy a location, whether an object has moved, which landmark is visible from a camera, whether a door is open, and whether an action can succeed. A hybrid system may therefore use symbolic facts for narrative semantics, a 3D/physics layer for spatial and causal constraints, and learned generators for appearance.
+
+\section{World Models and the Emergence of Generative Games}
+
+The term \emph{world model} predates modern generative video, but recent work increasingly uses video models as interactive environment simulators. Genie learns an action-controllable generative environment from unlabeled videos using a latent action model \citep{bruce2024genie}. GameGen-X targets interactive open-world game video, conditioning future generated content on user control signals \citep{che2024gamegenx}. Matrix-Game 2.0 emphasizes streaming autoregressive generation and reports real-time action-conditioned output \citep{he2025matrixgame}. Hunyuan-GameCraft-2 broadens control beyond fixed input schemas by conditioning interactive game worlds on natural-language instructions as well as keyboard and mouse signals \citep{tang2025hunyungamecraft2}.
+
+This research has motivated the explicit proposal that interactive generative video could become a next-generation game engine \citep{yu2025generativegameengines}. Yet a rendered future is not automatically a persistent world. \citet{li2026pixelstostates} make this distinction central: conventional game engines maintain an action--state--observation loop in which actions update explicit state according to rules and observations are rendered from that state. They argue that generative game worlds must address action control, state dynamics, state-observation persistence, and real-time generation. Surveys of world models for embodied AI identify similar open problems in long-horizon consistency, physical validity, computational efficiency, and state-level evaluation \citep{li2025worldmodelsurvey}.
+
+These results suggest two complementary routes toward persistent generative worlds:
+
+\begin{enumerate}[leftmargin=*]
+  \item \textbf{Explicit simulation route.} Agents manipulate symbolic and 3D state; deterministic rules and physics update the world; generative models render or embellish observations.
+  \item \textbf{Learned world-model route.} A generative model directly predicts future observations conditioned on history and actions, with state represented implicitly or in learned latent variables.
+\end{enumerate}
+
+Neither route presently dominates all requirements. Explicit engines offer inspectable state and strong causal constraints but require assets, rules, and simulation design. Learned world models offer open-ended synthesis and can absorb broad visual priors, but maintaining identity, causality, exact state, and long-term recoverability remains difficult. The likely convergence is hybrid: learned models supply flexible perception, appearance, completion, and dynamics, while explicit state or verification layers retain authoritative constraints when correctness matters.
+
+\section{Convergence: Film and Games as Views of the Same World}
+\label{sec:convergence}
+
+Agentic story systems and cinematic systems can be interpreted as progressively resolving a latent world. A story planner selects which possible events matter. Character agents explore motives and interactions. A world manager resolves proposed actions against current state. A production planner converts accepted events into shots. Image and video generators produce observations. Critics compare those observations against intended state. Editors order and finish them for an audience. In a game, the same deeper world could instead be exposed to continuous user action and rendered interactively.
+
+This perspective makes film and games less like separate endpoints and more like different interfaces:
+
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Cinematic interface:} direct, stage, observe, select, and edit trajectories through a world.
+  \item \textbf{Game interface:} act within the world and request the next observation in response to actions.
+  \item \textbf{Simulation interface:} run counterfactual trajectories to discover consequences or candidate stories.
+\end{itemize}
+
+The convergence becomes especially plausible as the subsystems mature. Narrative agents now preserve memories and world state; cinematic agents now carry explicit continuity dependencies and visual memories; LLM agents can construct physics-grounded 3D scenes; and world models increasingly support interactive, action-conditioned generation. The remaining gap is not simply higher video fidelity. It is the reliable coupling of semantic identity, causal state, spatial state, and generated observations over long horizons.
+
+We propose that a persistent generative world should satisfy at least six functional properties:
+
+\begin{enumerate}[leftmargin=*]
+  \item \textbf{Persistent identity:} entities remain addressable despite changes in viewpoint, medium, or appearance.
+  \item \textbf{Stateful history:} consequential events produce durable state changes rather than merely changing the latest prompt.
+  \item \textbf{Causal transition semantics:} actions have outcomes constrained by world rules, learned dynamics, physics, or explicit arbitration.
+  \item \textbf{Spatial coherence:} locations and relations survive camera cuts and non-adjacent revisitation.
+  \item \textbf{Multiple viewpoints and observations:} text, images, video, 3D renders, and interactive frames can be treated as views of shared underlying entities.
+  \item \textbf{Authority and reconciliation:} the system can distinguish intended state from generated evidence and decide which changes become durable.
+\end{enumerate}
+
+These criteria help distinguish a persistent world from a long prompt, a style-consistent video, or an endlessly generated visual stream.
+
+\section{Research Challenges}
+
+\subsection{Authority, contradiction, and reconciliation}
+
+Closed-loop generation introduces a subtle question: when a generator invents a detail, should later generations preserve it? CANVAS and A$^2$RD benefit from remembering generated visual evidence \citep{mondal2026canvas,long2026a2rd}, but uncontrolled propagation can turn an early error into durable false state. Systems need policies for classifying details as required, optional, accidental, or newly accepted. Provenance should record not only the current value but why it became authoritative.
+
+\subsection{Character knowledge versus world truth}
+
+Role-playing depends on partial and sometimes incorrect knowledge. If every character queries the same global state, mystery, deception, discovery, and dramatic irony collapse. Persistent-world architectures therefore need access control over knowledge as well as state: agents should retrieve what they perceive, remember, or believe, not omniscient truth.
+
+\subsection{Spatial representation across media}
+
+Video memory preserves appearance but does not necessarily provide metric geometry. 3D engines provide geometry but may not match open-ended visual generation. Research is needed on lightweight shared spatial representations that can connect narrative places, camera poses, generated references, and physics without requiring full manual reconstruction of every set.
+
+\subsection{Physical plausibility and causal fidelity}
+
+Generative video can appear plausible while violating object permanence or physical constraints. Physics-grounded systems such as SimWorlds demonstrate one route to verifiable dynamics \citep{liu2026simworlds}, while world-model research seeks learned dynamics from data \citep{li2025worldmodelsurvey}. Hybrid verification may be particularly useful: explicit solvers need not render the final pixels to constrain high-level causal outcomes.
+
+\subsection{Long-horizon error accumulation}
+
+Every persistent system must manage compounding error. Memory can preserve mistakes as efficiently as it preserves truth. Agentic video systems increasingly use targeted critique, candidate selection, and global evaluation \citep{shi2025animaker,song2026vqqa,chen2026cinecrew}. Future systems should evaluate not only the local quality of an output but the downstream cost of accepting it into persistent state.
+
+\subsection{Evaluation beyond single-output quality}
+
+Persistent worlds require trajectory-level metrics. Relevant dimensions include identity retention, causal consistency, state recovery after long absences, belief consistency for characters, spatial revisitation, narrative progression, response to actions, and agreement between underlying state and generated observations. Recent continuity benchmarks and world-model surveys begin to address these dimensions, but evaluation remains fragmented across media and application domains \citep{mondal2026canvas,long2026a2rd,li2026pixelstostates}.
+
+\subsection{Human creative authority}
+
+Agentic automation should not imply autonomous authorship as a design requirement. Many useful systems are better framed as force multipliers: agents can explore alternatives, enforce tedious continuity, generate candidate assets, and surface contradictions while humans retain control of world-defining and story-defining decisions. Explicit state and provenance can strengthen rather than weaken creative control because they make automated changes inspectable and reversible.
+
+\section{Conclusion}
+
+Agentic story generation, agentic filmmaking, language-controlled 3D creation, and interactive world models are converging on a common systems problem: persistence. Each field contributes a different missing layer. Story agents contribute memory, motives, belief, and emergent interaction. Worldbuilding agents contribute structured knowledge, dependency management, and conflict review. Cinematic agents contribute production decomposition, visual memory, continuity constraints, criticism, and repair. 3D and physics systems contribute explicit spatial and causal state. Learned world models contribute open-ended appearance and action-conditioned dynamics. Generative games pressure all of these components to operate interactively and in real time.
+
+The synthesis is not that a single model will necessarily replace writers, film crews, physics engines, and game engines. A more plausible architecture separates reasoning from execution and separates authoritative state from generated observation. Probabilistic agents can interpret, imagine, plan, and propose; structured contracts can make intent explicit; deterministic or physics-based systems can enforce stable constraints where needed; learned world models can synthesize rich observations and dynamics; and critics can reconcile what was intended with what was actually produced.
+
+Under this architecture, a persistent world becomes the durable substrate, while prose, films, simulations, and games become different ways of resolving and experiencing it. The most important transition may therefore be from generating \emph{content about a world} to maintaining a world that can repeatedly generate coherent content, accept actions, preserve consequences, and remain itself over time.
+
+\bibliographystyle{unsrtnat}
+\bibliography{references}
+
+\end{document}
