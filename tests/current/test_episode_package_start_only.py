@@ -16,11 +16,6 @@ def package() -> EpisodePackage:
         "premise": "Ember wakes.",
         "arc": "Ember wakes and begins to investigate.",
         "target_duration_seconds": 15,
-        "beats": [{
-            "site_id": "place_forge",
-            "duration_seconds": 15,
-            "narrative": "Ember wakes and looks around.",
-        }],
         "shots": [{
             "shot_id": "wake",
             "duration_seconds": 15,
