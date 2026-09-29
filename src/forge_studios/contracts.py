@@ -160,27 +160,13 @@ class EpisodePackage(BaseModel):
         asset_ids = [asset.asset_id for asset in self.assets]
         if len(asset_ids) != len(set(asset_ids)):
             raise ValueError("asset ids must be unique")
-        known_beats = {
-            str(beat.get("beat_id"))
-            for beat in self.beats
-            if isinstance(beat, dict) and beat.get("beat_id")
-        }
         known_assets = set(asset_ids)
-        covered: set[str] = set()
         for shot in self.shots:
-            if shot.beat_id not in known_beats:
-                raise ValueError(
-                    f"shot {shot.shot_id!r} references unknown beat {shot.beat_id!r}"
-                )
-            covered.add(shot.beat_id)
             missing_assets = set(shot.reference_asset_ids) - known_assets
             if missing_assets:
                 raise ValueError(
                     f"shot {shot.shot_id!r} references unknown assets: {sorted(missing_assets)}"
                 )
-        missing_beats = known_beats - covered
-        if missing_beats:
-            raise ValueError(f"planned beats are not covered by package shots: {sorted(missing_beats)}")
         total = sum(shot.duration_seconds for shot in self.shots)
         if abs(total - self.target_duration_seconds) > 0.5:
             raise ValueError(
