@@ -72,7 +72,7 @@ forge-studios plan --package episode-package.json
 forge-studios show-shot --package episode-package.json --shot-id <shot_id>
 ```
 
-The public shot contains the authored production intent: beat/site IDs, references,
+The public shot contains the authored production intent: shot/site IDs, references,
 reference-use instructions, frame policy, static boundary prompt(s), video prompt,
 visual constraints, and media lifecycle bindings.
 
