@@ -19,17 +19,16 @@ def package():
         title="Episode",
         arc="A small discovery.",
         target_duration_seconds=40,
-        beats=[{"beat_id": "one"}, {"beat_id": "two"}],
         shots=[
             Shot(
-                shot_id="one", beat_id="one", duration_seconds=20,
+                shot_id="one", duration_seconds=20,
                 site_id="place", reference_asset_ids=["ref"],
                 start_frame_prompt="Ember rests on the altar with closed eyes in a wide objective view.",
                 end_frame_prompt="Ember stands alert at the altar edge in a medium objective view.",
                 video_prompt="Ember opens his eyes, rises, speaks in his established voice, and finishes standing at the edge.",
             ),
             Shot(
-                shot_id="two", beat_id="two", duration_seconds=20,
+                shot_id="two", duration_seconds=20,
                 site_id="place", reference_asset_ids=["ref"],
                 inherits_start_from_shot_id="one",
                 start_frame_prompt="Ember stands alert at the altar edge in a medium objective view.",
@@ -99,7 +98,6 @@ def test_reference_uses_must_target_bound_reference_assets():
     with pytest.raises(ValueError, match="reference_uses names assets"):
         value.shots[0].__class__(
             shot_id="bad",
-            beat_id="one",
             duration_seconds=20,
             site_id="place",
             reference_asset_ids=["ref"],

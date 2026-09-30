@@ -12,7 +12,6 @@ regenerate it with current Forge Worlds.
 
 ```text
 EpisodePackage
-├── beats[]
 ├── shots[]
 └── assets[]
 ```

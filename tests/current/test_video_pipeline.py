@@ -25,10 +25,9 @@ def make_package(*, inherited: bool = True) -> EpisodePackage:
         arc="Confusion becomes curiosity.",
         themes=["identity"],
         target_duration_seconds=40,
-        beats=[{"beat_id": "wake"}, {"beat_id": "leave"}],
         shots=[
             Shot(
-                shot_id="wake", beat_id="wake", duration_seconds=20,
+                shot_id="wake", duration_seconds=20,
                 site_id="forge", character_ids=["ember"],
                 reference_asset_ids=["ember_ref", "forge_ref"],
                 frame_plan_mode="start_and_end",
@@ -37,7 +36,7 @@ def make_package(*, inherited: bool = True) -> EpisodePackage:
                 video_prompt="Ember blinks three times, rises, and asks \"Where am I?\" in his soft sincere established voice.",
             ),
             Shot(
-                shot_id="leave", beat_id="leave", duration_seconds=20,
+                shot_id="leave", duration_seconds=20,
                 site_id="forge", character_ids=["ember"],
                 reference_asset_ids=["ember_ref", "forge_ref"],
                 frame_plan_mode="start_and_end",
@@ -59,6 +58,8 @@ def test_public_json_remains_current_contract(tmp_path):
     raw = json.loads(path.read_text())
     assert raw["package_version"] == "episode_package"
     assert "scenes" not in raw
+    assert "beats" not in raw
+    assert all("beat_id" not in shot for shot in raw["shots"])
     serialized = path.read_text()
     for forbidden in ("execution_route", "render_strategy", '"frame_plan":', "physical_take"):
         assert forbidden not in serialized
