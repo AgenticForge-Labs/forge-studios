@@ -47,7 +47,7 @@ def bind_missing_references(package: EpisodePackage, *, manifest_path: str | Pat
             continue
         storage_key = record.get('storage_key')
         if not isinstance(storage_key, str):
-            raise ValueError(f'asset manifest record {asset_id!r} has no storage_key')
+            raise TypeError(f'asset manifest record {asset_id!r} has no storage_key')
         key = Path(storage_key)
         if key.is_absolute() or '..' in key.parts:
             raise ValueError(f'unsafe asset storage_key for {asset_id!r}: {storage_key!r}')
