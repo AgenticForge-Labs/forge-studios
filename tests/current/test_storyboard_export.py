@@ -233,8 +233,11 @@ def test_existing_logical_reference_is_bound_before_expensive_generation(tmp_pat
 def test_paid_runner_uses_normal_mode_verified_dev_runtime_and_resolved_references(tmp_path):
     script = (Path(__file__).resolve().parents[2]
               / "scripts" / "run_storyboard_review.sh").read_text()
+    assert "FAL_IMAGE_EDIT_MODEL=openai/gpt-image-2/edit python -m forge_studios.runtime_preflight" in script
     assert "FORGE_STUDIOS_MODE=normal python -m forge_studios.runtime_preflight" in script
-    assert script.count("FORGE_STUDIOS_MODE=normal python -m forge_studios.runtime_preflight") == 2
+    assert script.count("forge_studios.runtime_preflight") == 2
+    assert "--image-edit-model openai/gpt-image-2/edit" in script
+    assert "--refresh-model-candidates" in script
     assert "--asset-manifest \"$MANIFEST\"" in script
     assert "FORGE_STUDIOS_MODE=cheap" not in script
     assert "--mode cheap" not in script
