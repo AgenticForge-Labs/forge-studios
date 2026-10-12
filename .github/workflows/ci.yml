@@ -15,4 +15,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - run: python -m pip install --upgrade pip
       - run: python -m pip install -e '.[fal,timeline,dev]'
+      # Scope lint to the new exporter and tests. The existing repository-wide
+      # Ruff backlog is unrelated to this storyboard export PR.
+      - run: ruff check src/forge_studios/storyboard_export.py tests/current/test_storyboard_export.py
       - run: pytest -q
