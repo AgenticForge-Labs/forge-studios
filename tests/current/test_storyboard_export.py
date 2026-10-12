@@ -3,6 +3,8 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import subprocess
+from pathlib import Path
 from zipfile import ZipFile
 
 import yaml
@@ -138,3 +140,35 @@ def test_export_redacts_sensitive_execution_log_and_provenance(tmp_path):
         assert "very-secret-key" not in projection
         assert "signature=private" not in projection
         assert "[REDACTED]" in projection
+
+
+def test_runner_explains_missing_paths_without_provider_calls(tmp_path):
+    script = Path(__file__).resolve().parents[2] / "scripts" / "run_storyboard_review.sh"
+    missing_package = tmp_path / "missing" / "episode-package.json"
+    missing_manifest = tmp_path / "missing" / "forge-born.yaml"
+    missing_assets = tmp_path / "missing" / "forge-assets"
+    result = subprocess.run(
+        ["bash", str(script), str(missing_package), str(missing_manifest),
+         str(missing_assets), "smoke"],
+        text=True, capture_output=True, check=False,
+    )
+    assert result.returncode == 2
+    assert "EpisodePackage JSON is not a file" in result.stderr
+    assert "asset manifest not found" in result.stderr
+    assert "Canonical media root is not a directory" in result.stderr
+    assert "find" in result.stderr
+    assert "provider" not in result.stdout.lower()
+
+
+def test_runner_rejects_review_zip_as_live_package(tmp_path):
+    script = Path(__file__).resolve().parents[2] / "scripts" / "run_storyboard_review.sh"
+    zip_file = tmp_path / "episode1-review.zip"
+    zip_file.write_bytes(b"not-a-package")
+    manifest = tmp_path / "manifest.yaml"
+    manifest.write_text("kind: asset_manifest\\n")
+    result = subprocess.run(
+        ["bash", str(script), str(zip_file), str(manifest), str(tmp_path), "export"],
+        text=True, capture_output=True, check=False,
+    )
+    assert result.returncode == 2
+    assert "Pass the validated episode-package.json" in result.stderr
