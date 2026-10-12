@@ -16,7 +16,7 @@ import re
 import sys
 import time
 import zipfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import urlsplit
 from uuid import uuid4
@@ -320,7 +320,7 @@ def main(argv: list[str] | None = None) -> int:
                         help="Actually run one metered Fal request per selected model")
     args = parser.parse_args(argv)
     selected = parse_models(args.models)
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     safe_shot = re.sub(r"[^A-Za-z0-9_-]", "-", args.shot_id)
     target = args.out or (Path.home() / "Downloads" / f"{safe_shot}-model-compare-{stamp}.zip")
     result = compare(args.package, args.asset_manifest, args.asset_root, target,
