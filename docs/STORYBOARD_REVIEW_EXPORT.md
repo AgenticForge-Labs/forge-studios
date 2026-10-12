@@ -73,6 +73,34 @@ experiment, confirm the served provider, specific checkpoint license for
 commercial use, accepted reference count, dimensions, price, and budget
 externally. A $30 Modal credit allowance does not automatically cover fal usage.
 
+### Commercial-weight model choice
+
+The current `--mode cheap` Fal profile uses `fal-ai/flux-2/flash` /
+`fal-ai/flux-2/flash/edit`. Fal offers API commercial use, but these are
+FLUX.2 **[dev]** models: the downloadable model weights have a
+non-commercial license, which is **not** suitable for unrestricted commercial
+self-hosted inference. See:
+https://fal.ai/models/fal-ai/flux-2/flash/api and
+https://help.bfl.ai/articles/9272590838-self-serve-dev-license-overview-pricing .
+
+The official BFL `FLUX.2 [klein] 4B` and `4B Base` weights are Apache-2.0
+and allow commercial self-hosted use; 9B and dev weights do not share that
+license. See https://github.com/black-forest-labs/flux2 and
+https://bfl.ai/models/flux-2-klein . Fal also exposes a
+`fal-ai/flux-2/klein/4b/edit` API endpoint
+(https://fal.ai/models/fal-ai/flux-2/klein/4b/edit), currently advertised
+at approximately $0.01 per megapixel; provider pricing can change.
+
+**Do not automatically substitute Klein into Episode 1 yet.** Verify the
+actual model-specific multi-reference cap, image alias handling,
+request options/schema and fidelity on a single frozen test shot. The
+present Studios Fal profile defaults and adapter behavior were built around
+Flash. A model change is an adapter/integration experiment, not a reason
+for Studios to reinterpret Worlds' authored prompts. In particular, confirm
+whether the shot needs more reference images than Klein's supported capacity.
+Modal GPU credits are a separate compute budget and do not pay for Fal API
+requests. Report test cost and quality before proposing a default change.
+
 Inspect the initial generated frame for Ember identity, Forge geometry, camera,
 pre-action state, and provider cost/latency. Do not pay for nine further shots
 until the first sample and its economics are acceptable.
