@@ -270,7 +270,10 @@ on a single sample.
 GPT Image 2 is now the **global normal-profile default** through Fal:
 `openai/gpt-image-2` for zero-reference text-to-image requests, and
 `openai/gpt-image-2/edit` for shots with canonical reference images.
-Both target 1920×1080, one image at high quality. The edit endpoint is
+Both request one high-quality image. Normal profile targets 1920×1080,
+with the text-only Fal endpoint compiled to a valid 2048×1152 size;
+the reference-conditioned edit request retains the tested 1920×1080.
+The edit endpoint is
 also used to **create a new storyboard frame** from references; no previous
 candidate is overwritten. There is no additional OpenAI API key in Studios.
 
