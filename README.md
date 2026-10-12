@@ -125,8 +125,10 @@ handoff.
 
 The **global normal** mode now uses GPT Image 2 through Fal for both
 text-to-image (`openai/gpt-image-2`) and reference-conditioned image
-generation (`openai/gpt-image-2/edit`). Each requests one high-quality image,
-targeting 1920×1080. Use explicit `cheap` mode for the older FLUX Flash
+generation (`openai/gpt-image-2/edit`). Each requests one high-quality image.
+The normal profile targets 1920×1080; Fal's text-only size constraint rounds
+that endpoint to 2048×1152, while reference editing retains the validated
+1920×1080 request. Use explicit `cheap` mode for the older FLUX Flash
 models. Per-model overrides remain available; video model defaults are unchanged.
 
 The `scripts/run_storyboard_review.sh` foreground runner keeps its
