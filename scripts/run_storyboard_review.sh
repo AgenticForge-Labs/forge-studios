@@ -43,6 +43,10 @@ STATUS=0
 
 # Validate without discarding evidence when a partially generated package is bad.
 forge-studios validate "$PACKAGE" > "$LOG" 2>&1 || STATUS=$?
+if [[ "$STATUS" -ne 0 && "$RUN" != export ]]; then
+  echo "[storyboard] validation failed; paid generation skipped" | tee -a "$LOG"
+  RUN=export
+fi
 if [[ "$RUN" == smoke ]]; then
   SHOT=$(python - "$PACKAGE" <<'PY'
 import json, sys
