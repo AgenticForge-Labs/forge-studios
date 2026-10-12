@@ -291,7 +291,10 @@ The standalone `forge-studios generate` and `storyboard` subcommands do
 **not** accept a `--mode` flag. `FORGE_STUDIOS_MODE=normal` is the global
 default; it now selects `openai/gpt-image-2` for text-to-image and
 `openai/gpt-image-2/edit` for reference-conditioned generation through Fal.
-Both use `quality=high`, one output image, and target 1920×1080. The
+Both use `quality=high` and one output image. The normal target is 1920×1080;
+the text-only Fal endpoint requires multiples of 16, so its default request
+rounds up to 2048×1152 while the field-tested reference edit remains
+1920×1080. The
 explicit `cheap` mode still uses FLUX.2 Flash by design. Existing
 `FAL_IMAGE_GENERATE_MODEL` and `FAL_IMAGE_EDIT_MODEL` overrides remain
 independent and authoritative over profile defaults. Previous FLUX candidates
