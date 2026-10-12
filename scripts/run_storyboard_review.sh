@@ -77,13 +77,13 @@ print(v['shots'][0]['shot_id'])
 PY
 )
   echo "[storyboard] generating one start frame for $SHOT" | tee -a "$LOG"
-  forge-studios generate --package "$PACKAGE" --shot-id "$SHOT" --role start_frame \
-    --provider fal --mode cheap --asset-root "$ASSET_ROOT" --telemetry "$TELEMETRY" \
+  FORGE_STUDIOS_MODE=cheap forge-studios generate --package "$PACKAGE" --shot-id "$SHOT" --role start_frame \
+    --provider fal --asset-manifest "$MANIFEST" --asset-root "$ASSET_ROOT" --telemetry "$TELEMETRY" \
     2>&1 | tee -a "$LOG"
   STATUS=${PIPESTATUS[0]}
 elif [[ "$RUN" == full ]]; then
   echo "[storyboard] full ten-shot paid generation explicitly confirmed" | tee -a "$LOG"
-  forge-studios storyboard --package "$PACKAGE" \
+  FORGE_STUDIOS_MODE=cheap forge-studios storyboard --package "$PACKAGE" \
     --out "$OUTPUT_DIR/${EPISODE}-storyboard-${TIMESTAMP}.html" --generate \
     --provider fal --mode cheap --asset-manifest "$MANIFEST" \
     --asset-root "$ASSET_ROOT" --telemetry "$TELEMETRY" \
