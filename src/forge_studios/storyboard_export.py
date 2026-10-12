@@ -240,6 +240,32 @@ def export_storyboard_review(
                     events.append(_scrub(record))
             payloads["generation-events.json"] = _json(events)
 
+    # These are recorded execution facts, never fabricated prices. A partial
+    # provider run may have no billed-cost report; label such totals explicitly.
+    attempts = package.trace.get("generation_attempts", []) if isinstance(package.trace, dict) else []
+    frame_attempts = [a for a in attempts
+                      if isinstance(a, dict) and a.get("role") in {"start_frame", "end_frame"}]
+    paid = [a.get("cost_usd") for a in frame_attempts
+            if isinstance(a.get("cost_usd"), (int, float))]
+    times = [a.get("latency_ms") for a in frame_attempts
+             if isinstance(a.get("latency_ms"), (int, float))]
+    groups: dict[tuple[str, str], int] = {}
+    for attempt in frame_attempts:
+        key = (str(attempt.get("shot_id")), str(attempt.get("role")))
+        groups[key] = groups.get(key, 0) + 1
+    generation_summary = {
+        "attempt_count": len(frame_attempts),
+        "success_count": sum(a.get("outcome") == "succeeded" for a in frame_attempts),
+        "failure_count": sum(a.get("outcome") == "failed" for a in frame_attempts),
+        "additional_attempts_same_shot_role": sum(max(0, n - 1) for n in groups.values()),
+        "known_cost_usd": round(sum(paid), 6),
+        "unknown_cost_attempts": len(frame_attempts) - len(paid),
+        "known_latency_ms": round(sum(times), 1),
+        "unknown_latency_attempts": len(frame_attempts) - len(times),
+        "models": sorted({str(a.get("model")) for a in frame_attempts if a.get("model")}),
+        "providers": sorted({str(a.get("provider")) for a in frame_attempts if a.get("provider")}),
+    }
+
     manifest = {"kind": "forge_studios_storyboard_review", "schema_version": 1,
                 "episode_id": package.episode_id, "production_id": package.production_id,
                 "shot_count": len(shots), "frame_count": len(panels),
@@ -250,6 +276,7 @@ def export_storyboard_review(
                     for a in review.assets if a.kind == "reference_image"
                 ],
                 "git_shas": git_shas or {}, "contact_sheet_png": png_available,
+                "generation_summary": generation_summary,
                 "files": {}}
     for name, data in payloads.items():
         manifest["files"][name] = {"sha256": hashlib.sha256(data).hexdigest(), "size_bytes": len(data)}
