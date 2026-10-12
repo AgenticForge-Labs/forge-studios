@@ -134,7 +134,7 @@ def _export_storyboard(args):
         manifest = manifest or found_manifest
     result = export_storyboard_review(
         p, package_path=args.package, output_path=out,
-        asset_root=root, asset_manifest=manifest, telemetry_path=args.telemetry, git_shas=refs,
+        asset_root=root, asset_manifest=manifest, telemetry_path=args.telemetry, log_path=args.log, git_shas=refs,
     )
     print(json.dumps(result, indent=2))
     if args.open_dir:
@@ -238,6 +238,7 @@ def build_parser():
     review.add_argument('--asset-root',help='local root of canonical media storage keys')
     review.add_argument('--asset-manifest',help='authoritative manifest for reference storage keys')
     review.add_argument('--telemetry',default='.agenticforge/telemetry.jsonl')
+    review.add_argument('--log',help='optional foreground execution log (redacted in archive)')
     review.add_argument('--git-sha',action='append',help='repository=full_commit_sha (repeatable)')
     review.add_argument('--open-dir',action='store_true',help='open ZIP directory in the desktop file browser')
     review.set_defaults(func=_export_storyboard)
