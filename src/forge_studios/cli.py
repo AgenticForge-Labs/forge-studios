@@ -14,6 +14,7 @@ from .package_ops import add_reference,approve_asset,bind_inherited_start_frame,
 from .providers import FalProvider,MockProvider
 from .local_config import LocalSecretStore
 from .storyboard import build_storyboard,generate_boundary_candidates
+from .storyboard_export import export_storyboard_review
 from .telemetry import TelemetrySink
 from .timeline import save_timeline
 from .timeline_adapter import timeline_from_episode_package
@@ -109,6 +110,37 @@ def _storyboard(args):
     print(out)
     if args.open and not webbrowser.open(out.resolve().as_uri()):
         print(f'could not request a browser open; open {out} manually')
+def _export_storyboard(args):
+    import subprocess
+    p = load_package(args.package)
+    refs = {}
+    for item in args.git_sha or []:
+        if '=' not in item:
+            raise ValueError('--git-sha must be repository=commit_sha')
+        name, sha = item.split('=', 1)
+        if not name or not sha or not all(c in '0123456789abcdef' for c in sha.lower()) or len(sha) != 40:
+            raise ValueError('--git-sha must contain a repository label and full 40-character hex SHA')
+        refs[name] = sha
+    if args.out:
+        out = Path(args.out).expanduser()
+    else:
+        safe_id = ''.join(c if c.isalnum() or c in '-_' else '-' for c in p.episode_id)
+        out = Path.home() / 'Downloads' / f'{safe_id}-storyboard-review.zip'
+    root = args.asset_root
+    if not root:
+        _, root = discover_asset_sources(args.package)
+    result = export_storyboard_review(
+        p, package_path=args.package, output_path=out,
+        asset_root=root, telemetry_path=args.telemetry, git_shas=refs,
+    )
+    print(json.dumps(result, indent=2))
+    if args.open_dir:
+        try:
+            subprocess.Popen(['xdg-open', str(out.parent.resolve())],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except OSError:
+            print(f'Open output directory manually: {out.parent}')
+
 def _generate(args):
     p=load_package(args.package); assert_generation_preflight(p)
     service=AnimatorService(_provider(args.provider,_media_output_dir(args,p),progress=print,client_timeout_seconds=args.provider_timeout,poll_interval_seconds=args.provider_poll_interval),TelemetrySink(args.telemetry))
@@ -197,6 +229,14 @@ def build_parser():
     k=sub.add_parser('keys'); ks=k.add_subparsers(dest='action',required=True); st=ks.add_parser('set'); st.add_argument('name'); st.add_argument('value',nargs='?'); ks.add_parser('list'); k.set_defaults(func=_keys)
     v=sub.add_parser('validate'); v.add_argument('path'); v.set_defaults(func=_package)
     sb=sub.add_parser('storyboard'); sb.add_argument('--package',required=True); sb.add_argument('--out',required=True); sb.add_argument('--generate',action='store_true',help='generate missing start/end boundary-frame candidate pairs before assembling HTML'); sb.add_argument('--auto-approve',action='store_true',help='approve generated boundary frames after the pair is created (off by default for human review)'); sb.add_argument('--asset-manifest',help='asset manifest used to bind missing canonical/reusable references'); sb.add_argument('--asset-root',help='root directory for manifest storage keys'); sb.add_argument('--provider',choices=['mock','fal'],default='mock'); sb.add_argument('--output-dir'); sb.add_argument('--telemetry',default='.agenticforge/telemetry.jsonl'); sb.add_argument('--provider-timeout',type=float,default=None,help='maximum seconds to wait for one provider request (default: 300 or FAL_CLIENT_TIMEOUT_SECONDS)'); sb.add_argument('--provider-poll-interval',type=float,default=None,help='seconds between provider status updates (default: 5 or FAL_POLL_INTERVAL_SECONDS)'); sb.add_argument('--open',action='store_true',help='open the generated boundary-frame storyboard HTML in the system browser'); sb.set_defaults(func=_storyboard)
+    review=sub.add_parser('storyboard-export',help='package existing storyboard images, references, metadata and diagnostics for offline review (no generation)')
+    review.add_argument('--package',required=True)
+    review.add_argument('--out',help='output ZIP; defaults to ~/Downloads/<episode>-storyboard-review.zip')
+    review.add_argument('--asset-root',help='local root of canonical media storage keys')
+    review.add_argument('--telemetry',default='.agenticforge/telemetry.jsonl')
+    review.add_argument('--git-sha',action='append',help='repository=full_commit_sha (repeatable)')
+    review.add_argument('--open-dir',action='store_true',help='open ZIP directory in the desktop file browser')
+    review.set_defaults(func=_export_storyboard)
     g=sub.add_parser('generate'); g.add_argument('--package',required=True); g.add_argument('--shot-id',required=True); g.add_argument('--role',choices=['start_frame','end_frame','video'],default='start_frame'); g.add_argument('--provider',choices=['mock','fal'],default='mock'); g.add_argument('--output-dir'); g.add_argument('--asset-root'); g.add_argument('--telemetry',default='.agenticforge/telemetry.jsonl'); g.add_argument('--provider-timeout',type=float,default=None); g.add_argument('--provider-poll-interval',type=float,default=None); g.set_defaults(func=_generate)
     a=sub.add_parser('approve'); a.add_argument('--package',required=True); a.add_argument('--shot-id',required=True); a.add_argument('--kind',choices=['start_frame','end_frame','clip'],required=True); a.add_argument('--asset-id',required=True); a.add_argument('--telemetry',default='.agenticforge/telemetry.jsonl'); _review_args(a); a.set_defaults(func=_approve)
     rj=sub.add_parser('reject'); rj.add_argument('--package',required=True); rj.add_argument('--shot-id',required=True); rj.add_argument('--asset-id',required=True); rj.add_argument('--telemetry',default='.agenticforge/telemetry.jsonl'); _review_args(rj,rejection=True); rj.set_defaults(func=_reject)
