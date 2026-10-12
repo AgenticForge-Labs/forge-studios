@@ -202,7 +202,7 @@ def test_reference_gallery_exposes_canon_before_frames(tmp_path):
 def test_mislabeled_jpeg_keeps_original_bytes_but_uses_truthful_transport_type(tmp_path):
     package, package_path, root, manifest_path = _package(tmp_path)
     # The real Episode 1 first canonical *.png contains JPEG data.
-    jpeg_magic = b"\\xff\\xd8\\xff" + b"fake-jpeg-payload"
+    jpeg_magic = bytes((255, 216, 255)) + b"fake-jpeg-payload"
     (root / "canon" / "ember.png").write_bytes(jpeg_magic)
     package.shots[0].start_frame_asset_ids = []
     package.assets.pop()
