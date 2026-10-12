@@ -288,10 +288,12 @@ music generation, goes through AgenticForge AI Runtime by default.
 
 Provider generation mode is read from `FORGE_STUDIOS_MODE` by `FalProvider`.
 The standalone `forge-studios generate` and `storyboard` subcommands do
-**not** accept a `--mode` flag. The Episode 1 review runner explicitly uses
-`FORGE_STUDIOS_MODE=normal` per the operator's October 12 instruction:
-reference-conditioned openings target `fal-ai/flux-2-pro/edit` at the normal
-1920×1080 profile. Never silently substitute the cheap profile.
+**not** accept a `--mode` flag. The Episode 1 foreground runner explicitly
+uses `FORGE_STUDIOS_MODE=normal` but selects `openai/gpt-image-2/edit`
+through Fal for this episode's storyboard still frames, with high-quality,
+one-image requests targeting 1920×1080. The previous FLUX model candidates
+remain as provenance. Do not change the global profile defaults for
+unrelated projects.
 Before paid generation, `runtime_preflight` verifies the actual development
 Platform container and its credentials without emitting tokens or modifying
 services. Confirm model, image size, provider and cost in the attempt trace.
