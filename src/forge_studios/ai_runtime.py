@@ -9,6 +9,8 @@ from urllib.parse import urlparse
 
 import httpx
 
+from .media_types import sniff_image_bytes
+
 
 class AIRuntimeError(RuntimeError):
     """Shared AI Runtime request failed."""
@@ -146,11 +148,17 @@ def runtime_asset(
     path = Path(value).expanduser()
     if not path.exists() or not path.is_file():
         return value
-    content_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+    data = path.read_bytes()
+    signature = sniff_image_bytes(data)
+    content_type = signature[1] if signature else (
+        mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+    )
+    # Filename is a transport hint. Keep the canonical file and asset ID intact.
+    filename = path.with_suffix(signature[0]).name if signature else path.name
     assets[asset_id] = {
-        "filename": path.name,
+        "filename": filename,
         "content_type": content_type,
-        "data_base64": base64.b64encode(path.read_bytes()).decode("ascii"),
+        "data_base64": base64.b64encode(data).decode("ascii"),
     }
     return f"asset://{asset_id}"
 
