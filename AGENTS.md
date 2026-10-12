@@ -129,7 +129,7 @@ prompts or auto-approve the new results. It checkpoints each new candidate in
 the source package and retains it for human storyboard review. This is
 not video generation, and the development Runtime preflight and explicit
 `full --confirm-paid` budget gate are mandatory in the foreground runner.
-The shared normal-mode model default remains FLUX.2 Pro for other callers.
+The normal-mode global default is now GPT Image 2 for both text-only and reference-conditioned generation; the explicit `cheap` mode remains FLUX Flash.
 See `docs/STORYBOARD_REVIEW_EXPORT.md` for operator commands.
 
 ## Experimental image-provider comparisons
@@ -288,12 +288,16 @@ music generation, goes through AgenticForge AI Runtime by default.
 
 Provider generation mode is read from `FORGE_STUDIOS_MODE` by `FalProvider`.
 The standalone `forge-studios generate` and `storyboard` subcommands do
-**not** accept a `--mode` flag. The Episode 1 foreground runner explicitly
-uses `FORGE_STUDIOS_MODE=normal` but selects `openai/gpt-image-2/edit`
-through Fal for this episode's storyboard still frames, with high-quality,
-one-image requests targeting 1920×1080. The previous FLUX model candidates
-remain as provenance. Do not change the global profile defaults for
-unrelated projects.
+**not** accept a `--mode` flag. `FORGE_STUDIOS_MODE=normal` is the global
+default; it now selects `openai/gpt-image-2` for text-to-image and
+`openai/gpt-image-2/edit` for reference-conditioned generation through Fal.
+Both use `quality=high`, one output image, and target 1920×1080. The
+explicit `cheap` mode still uses FLUX.2 Flash by design. Existing
+`FAL_IMAGE_GENERATE_MODEL` and `FAL_IMAGE_EDIT_MODEL` overrides remain
+independent and authoritative over profile defaults. Previous FLUX candidates
+remain as provenance. The full Episode 1 runner may keep the explicit GPT
+edit-model selection for a reproducible operator handoff. Video model
+configuration is unchanged.
 Before paid generation, `runtime_preflight` verifies the actual development
 Platform container and its credentials without emitting tokens or modifying
 services. Confirm model, image size, provider and cost in the attempt trace.
