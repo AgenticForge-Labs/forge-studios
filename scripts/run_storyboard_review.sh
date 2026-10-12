@@ -12,9 +12,31 @@ MANIFEST=$2
 ASSET_ROOT=$3
 RUN=$4
 CONFIRM=${5:-}
-[[ -f "$PACKAGE" && -f "$MANIFEST" && -d "$ASSET_ROOT" ]] || {
-  echo "Package, manifest and asset root must exist" >&2; exit 2;
-}
+# Validate each location separately so an unsuccessful operator handoff never
+# looks like an inference or storyboard-generation failure.
+MISSING=0
+if [[ ! -f "$PACKAGE" ]]; then
+  echo "ERROR: EpisodePackage JSON is not a file: $PACKAGE" >&2
+  MISSING=1
+elif [[ "$PACKAGE" == *.zip ]]; then
+  echo "ERROR: Pass the validated episode-package.json, not a review ZIP: $PACKAGE" >&2
+  MISSING=1
+fi
+if [[ ! -f "$MANIFEST" ]]; then
+  echo "ERROR: Forge Born asset manifest not found: $MANIFEST" >&2
+  MISSING=1
+fi
+if [[ ! -d "$ASSET_ROOT" ]]; then
+  echo "ERROR: Canonical media root is not a directory: $ASSET_ROOT" >&2
+  MISSING=1
+fi
+if [[ "$MISSING" -ne 0 ]]; then
+  echo "Locate the latest existing package with:" >&2
+  echo '  find "$HOME/code/forge-worlds/temp" -type f -name episode-package.json -print 2>/dev/null | tail -n 12' >&2
+  echo "Your earlier Worlds review ZIP can also contain episode-package.json; inspect it with unzip -l." >&2
+  echo "Do not rerun Worlds or use an old versioned fixture simply to satisfy this check." >&2
+  exit 2
+fi
 [[ "$RUN" == export || "$RUN" == smoke || "$RUN" == full ]] || usage
 if [[ "$RUN" == full && "$CONFIRM" != "--confirm-paid" ]]; then
   echo "Full paid generation requires --confirm-paid after budget/first-frame review" >&2
