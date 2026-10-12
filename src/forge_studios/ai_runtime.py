@@ -4,7 +4,7 @@ import base64
 import mimetypes
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, Self
 from urllib.parse import urlparse
 
 import httpx
@@ -80,7 +80,7 @@ class AIRuntimeMediaClient:
         if self._owns_client:
             self.client.close()
 
-    def __enter__(self) -> "AIRuntimeMediaClient":
+    def __enter__(self) -> Self:
         return self
 
     def __exit__(self, exc_type, exc, tb) -> None:
