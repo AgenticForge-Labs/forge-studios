@@ -16,7 +16,7 @@ from .contracts import EpisodePackage
 from .storyboard import build_storyboard
 
 _IMAGE_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".gif": "image/gif"}
-_SECRET_KEY = re.compile(r"(^|_)(token|secret|password|api_key|authorization|credential|cookie)(_|$)", re.I)
+_SECRET_KEY = re.compile(r"(^|_)(token|secret|password|api_key|authorization|credential|cookie)(_|$)", re.IGNORECASE)
 _SECRET_VALUE = re.compile(r"(?i)(bearer\s+\S+|sk-[a-z0-9_-]{16,})")
 
 
