@@ -78,6 +78,15 @@ def _storyboard(args):
             raise ValueError('--refresh-model-candidates requires --generate --provider fal and --image-edit-model')
         if args.auto_approve:
             raise ValueError('--refresh-model-candidates cannot auto-approve new images')
+        without_refs = [
+            shot.shot_id for shot in p.shots
+            if not shot.frame_plan.chain_from_shot_id and not shot.reference_asset_ids
+        ]
+        if without_refs:
+            raise ValueError(
+                'Selected image edit model requires canonical references for all '
+                'non-inherited shots: ' + ', '.join(without_refs)
+            )
     if args.image_edit_model and args.provider != 'fal':
         raise ValueError('--image-edit-model requires --provider fal')
     sink=TelemetrySink(args.telemetry)
