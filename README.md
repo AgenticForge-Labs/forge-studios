@@ -161,8 +161,13 @@ Local approved references and picture-lock videos are sent to Runtime as explici
 asset inputs; Runtime uploads them to fal.ai and substitutes only those transport
 references. Runtime must not rewrite prompts or infer production intent.
 
-Use `--mode cheap` for routine iteration. Current cheap defaults are documented in
-`AGENTS.md`.
+`FalProvider` reads `FORGE_STUDIOS_MODE` for the selected generation
+profile; the single-shot `generate` and `storyboard` CLI commands do not
+support `--mode`. The Episode 1 paid storyboard runner uses the explicit
+**normal** profile and verifies the running isolated Platform development
+runtime/token before generating. The offline export remains free. See
+`docs/STORYBOARD_REVIEW_EXPORT.md` for the signed-off one-frame workflow,
+failed-auth recovery, and remaining local validation gates.
 
 Never commit Runtime tokens, provider keys, credentials, or local secret files.
 
