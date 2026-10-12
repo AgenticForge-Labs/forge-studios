@@ -47,6 +47,47 @@ not any old versioned fixtures in `forge-born/episodes`. The
 is not stored in the Studios repository; locate the real local package before
 attempting inference. Do not re-run Forge Worlds to start storyboarding.
 
+### Locate the actual package on the workstation
+
+The Forge Worlds operator script `scripts/run_episode1_review.sh` creates
+`temp/episode1-<timestamp>/episode-package.json` for a fresh run and also
+includes `episode-package.json` at the root of its review ZIP. The examples
+below deliberately do **not** automatically choose an older file.
+
+```bash
+# Use the directory in which YOUR Forge Worlds repository is checked out.
+find ~/code/forge-worlds/temp -type f -name episode-package.json \
+  -printf '%TY-%Tm-%Td %TH:%TM %p\\n' 2>/dev/null | sort -r | head -n 20
+
+# If the source JSON is unavailable, inspect the known review ZIP.
+unzip -l ~/Downloads/episode1-review-episode1-20261012-002311.zip | \
+  grep -E '(^|/)episode-package.json$|episode-package.json'
+```
+
+Prefer the original matching run's JSON. If recovering from the ZIP, extract
+`episode-package.json` into an isolated *working* run directory before using
+Studios; do not edit the archive or replace locked Forge Born lore. For
+example:
+
+```bash
+mkdir -p ~/code/forge-worlds/temp/episode1-storyboard-working
+unzip -p ~/Downloads/episode1-review-episode1-20261012-002311.zip \
+  episode-package.json \
+  > ~/code/forge-worlds/temp/episode1-storyboard-working/episode-package.json
+```
+
+Then point `PACKAGE` at that exact JSON path. The storyboard runner checks
+the package, `forge-born/assets/forge-born.yaml`, and the sibling
+`forge-assets` directory **separately** before spending anything. If any is
+missing it exits with a diagnostic naming that specific path and a hint for
+finding the validated package.
+
+**Lint note:** current upstream Forge Studios contains unrelated Ruff
+violations; a repository-wide `ruff check .` is not an integration gate for
+this export change. Run
+`ruff check src/forge_studios/storyboard_export.py tests/current/test_storyboard_export.py`
+plus the full current test suite. CI enforces that focused lint gate.
+
 From your cloned workspace:
 
 ```bash
