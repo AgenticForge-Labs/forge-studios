@@ -67,7 +67,7 @@ fi
 
 # Always export completed frames, references, diagnostics, and a missing-frame ledger.
 forge-studios storyboard-export --package "$PACKAGE" --asset-manifest "$MANIFEST" \
-  --asset-root "$ASSET_ROOT" --telemetry "$TELEMETRY" \
+  --asset-root "$ASSET_ROOT" --telemetry "$TELEMETRY" --log "$LOG" \
   --out "$OUTPUT" --open-dir || {
     echo "Export failed. Diagnostics retained at $LOG" >&2
     exit 1
