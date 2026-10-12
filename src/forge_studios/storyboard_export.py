@@ -36,7 +36,7 @@ def _scrub(value):
     return value
 
 
-def _source_path(uri: str, *, package_dir: Path, asset_root: Path | None) -> Path | None:
+def _source_path(uri: str, *, package_dir: Path) -> Path | None:
     """Never fetch arbitrary URLs; resolve only local file and manifest-backed media."""
     if uri.startswith(("https://", "http://", "asset://", "data:")):
         return None
@@ -52,12 +52,12 @@ def _source_path(uri: str, *, package_dir: Path, asset_root: Path | None) -> Pat
     return path if path.is_absolute() else package_dir / path
 
 
-def _resolve_media(asset, package_dir: Path, asset_root: Path | None) -> Path | None:
-    candidate = _source_path(asset.uri, package_dir=package_dir, asset_root=asset_root)
+def _resolve_media(asset, package_dir: Path, asset_root: Path | None, storage_keys: dict[str, str]) -> Path | None:
+    candidate = _source_path(asset.uri, package_dir=package_dir)
     if candidate is not None and candidate.is_file():
         return candidate.resolve()
-    if asset_root is not None and asset.storage_key:
-        key = Path(asset.storage_key)
+    if asset_root is not None and (asset.storage_key or storage_keys.get(asset.asset_id)):
+        key = Path(asset.storage_key or storage_keys[asset.asset_id])
         if key.is_absolute() or ".." in key.parts:
             return None
         candidate = (asset_root / key).resolve()
@@ -97,6 +97,7 @@ def export_storyboard_review(
     package_path: str | Path,
     output_path: str | Path,
     asset_root: str | Path | None = None,
+    asset_manifest: str | Path | None = None,
     telemetry_path: str | Path | None = None,
     git_shas: dict[str, str] | None = None,
 ) -> dict:
@@ -109,9 +110,19 @@ def export_storyboard_review(
     target = Path(output_path).expanduser()
     target.parent.mkdir(parents=True, exist_ok=True)
     root = Path(asset_root).expanduser().resolve() if asset_root else None
+    storage_keys: dict[str, str] = {}
+    if asset_manifest:
+        import yaml
+        raw = yaml.safe_load(Path(asset_manifest).expanduser().read_text())
+        if not isinstance(raw, dict) or raw.get("kind") != "asset_manifest":
+            raise ValueError("asset manifest must have kind=asset_manifest")
+        storage_keys = {str(item["asset_id"]): str(item["storage_key"])
+                        for item in raw.get("assets", [])
+                        if isinstance(item, dict) and "asset_id" in item and "storage_key" in item}
     review = package.model_copy(deep=True)
     payloads: dict[str, bytes] = {}
     image_locations: dict[str, str] = {}
+    unresolved: set[str] = set()
     missing: list[dict] = []
     panels: list[tuple[str, bytes, str]] = []
     shots: list[dict] = []
@@ -119,10 +130,13 @@ def export_storyboard_review(
     def include(asset_id: str, *, label: str) -> str | None:
         if asset_id in image_locations:
             return image_locations[asset_id]
+        if asset_id in unresolved:
+            return None
         asset = review.find_asset(asset_id)
-        path = _resolve_media(asset, source.parent, root)
+        path = _resolve_media(asset, source.parent, root, storage_keys)
         suffix = path.suffix.lower() if path else ""
         if path is None or suffix not in _IMAGE_TYPES:
+            unresolved.add(asset_id)
             missing.append({"asset_id": asset_id, "label": label, "reason": "local supported raster image unavailable"})
             asset.uri = f"asset://unbundled/{asset_id}"
             return None
