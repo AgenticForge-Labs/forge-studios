@@ -90,14 +90,17 @@ finding the validated package.
 **Lint note:** current upstream Forge Studios contains unrelated Ruff
 violations; a repository-wide `ruff check .` is not an integration gate for
 this export change. Run
-`ruff check src/forge_studios/storyboard_export.py tests/current/test_storyboard_export.py`
+\`ruff check src/forge_studios/storyboard_export.py src/forge_studios/media_types.py \\
+  src/forge_studios/ai_runtime.py src/forge_studios/asset_resolution.py \\
+  src/forge_studios/runtime_preflight.py tests/current/test_storyboard_export.py \\
+  tests/current/test_runtime_preflight.py\`
 plus the full current test suite. CI enforces that focused lint gate.
 
 From your cloned workspace:
 
 ```bash
 cd ~/code/forge-studios
-uv sync --extra dev
+uv sync --extra fal --extra dev
 source .venv/bin/activate
 
 PACKAGE=/absolute/path/to/current/episode-package.json
@@ -112,17 +115,43 @@ bash scripts/run_storyboard_review.sh "$PACKAGE" "$MANIFEST" "$ASSET_ROOT" expor
 bash scripts/run_storyboard_review.sh "$PACKAGE" "$MANIFEST" "$ASSET_ROOT" smoke
 ```
 
-The `smoke` operation uses the current `--mode cheap` image provider profile.
-Current Studios source defaults use FLUX.2 Flash/Edit via fal/AI Runtime, **not**
-Modal credits or an implemented Modal/Vast.ai/Runpod adapter. Before any paid
-experiment, confirm the served provider, specific checkpoint license for
-commercial use, accepted reference count, dimensions, price, and budget
-externally. A $30 Modal credit allowance does not automatically cover fal usage.
+The `smoke` and explicitly confirmed `full` runs select
+`FORGE_STUDIOS_MODE=normal`. As of this branch, normal mode requests
+`fal-ai/flux-2-pro/edit` for a reference-conditioned opening image, with
+a 1920×1080 profile target. The model/provider and actual request are recorded
+in the generated attempt; do not assume the provider accepted an unverified
+dimension until one paid frame succeeds.
+
+**Runtime authentication isolation:** The October 12 first smoke got
+`401 Invalid runtime token` at `127.0.0.1:8090`. This was an AI Runtime
+authentication rejection **before Fal inference**, not a generated-frame failure.
+The current runner now launches paid modes through
+`python -m forge_studios.runtime_preflight`. That read-only helper looks at
+the sibling `agenticforge-platform` checkout's Compose configuration and
+the **actually running** container. It refuses any project other than
+`agenticforge-platform-dev`, requires `APP_ENV=development`, verifies the
+running token matches the configured token, checks a distinct loopback port
+(normally 18090), and requires an up/ready Fal-backed Runtime. The token is
+passed in memory directly into the child generation process, never printed,
+persisted in the shell, or logged. It does **not** start/stop Docker services,
+change `.env`, or try a paid provider call to test credentials.
+
+If this preflight fails, check the development Compose project and its
+running container **without** pasting any secrets. Fix/reconcile that Platform
+installation in the local deployment workflow rather than directing Studios
+to the port 8090 runtime or hardcoding a token. A running service whose token
+differs from the configured value must be repaired deliberately in its owning
+Platform environment; no silent restart is attempted here.
+
+Fal normal API inference is charged separately from Modal credits. Before
+any paid experiment, confirm the served provider, specific checkpoint license
+for commercial use, reference count, dimensions, and current pricing; do not
+assume the $30 Modal credit allowance pays for this request.
 
 ### Commercial-weight model choice
 
-The current `--mode cheap` Fal profile uses `fal-ai/flux-2/flash` /
-`fal-ai/flux-2/flash/edit`. Fal offers API commercial use, but these are
+The optional **cheap** Fal profile (not selected by this runner) uses
+`fal-ai/flux-2/flash` / `fal-ai/flux-2/flash/edit`. Fal offers API commercial use, but these are
 FLUX.2 **[dev]** models: the downloadable model weights have a
 non-commercial license, which is **not** suitable for unrestricted commercial
 self-hosted inference. See:
@@ -208,13 +237,13 @@ had a no-frames placeholder and no displayed canon gallery; the repair above
 makes pre-generation references visible. Do not modify the uploaded ZIP to
 make it look as if images have been generated.
 
-The `smoke` path sets `FORGE_STUDIOS_MODE=cheap`, the actual profile knob
-read by `FalProvider` (the `generate` CLI does **not** accept `--mode`).
-It passes `--asset-manifest` and `--asset-root` so existing logical
-`asset://` references resolve to real canonical local images before any
-request is sent; the single-shot command fails safely if a reference remains
-unreadable. The full batch uses the same cheap environment configuration.
-The cheap Fal endpoint incurs Fal/provider charges, not Modal credit.
-Use `export` for no-inference inspection first and the `smoke` mode only
-when explicitly ready to incur a provider charge.
+The `20261012T153802Z` smoke attempt failed before generating any
+images: Studios attempted `127.0.0.1:8090` and received HTTP 401 with
+`Invalid runtime token`. The resulting export still reports zero frames,
+and the original EpisodePackage now retains that failed attempt as evidence.
+The normal-mode runner verifies a distinct **development** Runtime before a
+paid request. It also passes `--asset-manifest` and `--asset-root` so
+existing logical `asset://` references resolve to canonical local images
+before calling the provider. The full batch uses the same normal profile and
+is subject to `--confirm-paid` after human acceptance of the first frame.
 
