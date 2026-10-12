@@ -154,7 +154,10 @@ def _one_generation(name: str, prompt: str, image_references: list[tuple[str, Pa
     attempt = uuid4().hex
     evidence = {"label": name, "model": MODEL_SPECS[name]["id"], "attempt_id": attempt,
                 "status": "failed", "latency_seconds": None,
-                "cost_usd": None, "output_sha256": None, "error": None}
+                "cost_usd": None, "output_sha256": None, "error": None,
+                "request_options": MODEL_SPECS[name]["options"],
+                "reference_asset_ids": [aid for aid, _path, _data in image_references],
+                "prompt_sha256": _sha(prompt.encode("utf-8"))}
     try:
         uploaded = {}
         uris = []
