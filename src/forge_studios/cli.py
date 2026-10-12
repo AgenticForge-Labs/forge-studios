@@ -127,11 +127,14 @@ def _export_storyboard(args):
         safe_id = ''.join(c if c.isalnum() or c in '-_' else '-' for c in p.episode_id)
         out = Path.home() / 'Downloads' / f'{safe_id}-storyboard-review.zip'
     root = args.asset_root
-    if not root:
-        _, root = discover_asset_sources(args.package)
+    manifest = args.asset_manifest
+    if not root or not manifest:
+        found_manifest, found_root = discover_asset_sources(args.package)
+        root = root or found_root
+        manifest = manifest or found_manifest
     result = export_storyboard_review(
         p, package_path=args.package, output_path=out,
-        asset_root=root, telemetry_path=args.telemetry, git_shas=refs,
+        asset_root=root, asset_manifest=manifest, telemetry_path=args.telemetry, git_shas=refs,
     )
     print(json.dumps(result, indent=2))
     if args.open_dir:
@@ -233,6 +236,7 @@ def build_parser():
     review.add_argument('--package',required=True)
     review.add_argument('--out',help='output ZIP; defaults to ~/Downloads/<episode>-storyboard-review.zip')
     review.add_argument('--asset-root',help='local root of canonical media storage keys')
+    review.add_argument('--asset-manifest',help='authoritative manifest for reference storage keys')
     review.add_argument('--telemetry',default='.agenticforge/telemetry.jsonl')
     review.add_argument('--git-sha',action='append',help='repository=full_commit_sha (repeatable)')
     review.add_argument('--open-dir',action='store_true',help='open ZIP directory in the desktop file browser')
