@@ -116,3 +116,25 @@ def test_cli_export_has_no_generate_or_auto_approval_switches():
     assert opts.open_dir
     assert not hasattr(opts, "generate")
     assert not hasattr(opts, "auto_approve")
+
+
+def test_export_redacts_sensitive_execution_log_and_provenance(tmp_path):
+    p, path, root, assets = _package(tmp_path)
+    p.trace["provider_uri"] = "https://example.org/image.png?signature=private"
+    p.trace["authorization"] = "Bearer very-secret-key"
+    log = tmp_path / "run.log"
+    log.write_text("started\\nAuthorization: Bearer secret\\nhttps://test.invalid/image.png?token=secret\\nfinished\\n")
+    out = tmp_path / "safe.zip"
+    export_storyboard_review(
+        p, package_path=path, output_path=out,
+        asset_root=root, asset_manifest=assets, log_path=log,
+    )
+    with ZipFile(out) as z:
+        text = z.read("execution-log.txt").decode()
+        assert "finished" in text
+        assert "Bearer secret" not in text
+        assert "token=secret" not in text
+        projection = z.read("episode-package.json").decode()
+        assert "very-secret-key" not in projection
+        assert "signature=private" not in projection
+        assert "[REDACTED]" in projection
