@@ -121,6 +121,18 @@ The export does not generate or approve media. See
 the one-frame smoke test, safeguarded foreground batch runner, and `~/Downloads`
 handoff.
 
+### Fal-only model comparisons
+
+Before approving the first storyboard image, run
+`scripts/run_image_model_comparison.sh` to compare the same EpisodePackage
+prompt and canonical references against Fal-hosted OpenAI GPT Image 2,
+Google Nano Banana 2, FLUX.2 Klein 4B, and Qwen Image Edit 2511.
+The existing Platform AI Runtime owns provider credentials, and the
+comparison's development-runtime guard verifies isolation before sending
+metered requests. Comparison results are portable review ZIPs only; nothing
+is auto-approved or registered in the production package. See
+`docs/STORYBOARD_REVIEW_EXPORT.md`.
+
 ## Reference semantics
 
 Forge Worlds resolves world/view IDs to stable reference assets before handoff.
