@@ -37,6 +37,7 @@ _IMAGE_MODEL_PROFILES = {
     "fal-ai/kling-image/o3/image-to-image": FalImageModelProfile(
         "image_urls", "list", 10, max_prompt_chars=2500
     ),
+    "openai/gpt-image-2": FalImageModelProfile("image_urls", "list", 0),
     "openai/gpt-image-2/edit": FalImageModelProfile("image_urls", "list", 16),
 }
 _FAST_VIDEO_DURATIONS = {6, 8, 10, 12, 14, 16, 18, 20}
@@ -200,9 +201,10 @@ class FalProvider:
             if 'image_size' not in payload and self.profile.image.width and self.profile.image.height:
                 width,height=resolve_supported_image_size(model,self.profile.image.width,self.profile.image.height)
                 payload['image_size']={'width':width,'height':height}
-            if model == 'openai/gpt-image-2/edit':
-                # Use the already validated Fal comparison request shape.
-                # This is provider execution configuration, not authored prompt.
+            if model in {'openai/gpt-image-2', 'openai/gpt-image-2/edit'}:
+                # Both Fal GPT Image 2 endpoints support the same deterministic
+                # quality and output-count controls. Their reference input
+                # contracts differ and remain selected by model_for().
                 payload.setdefault('quality', 'high')
                 payload.setdefault('num_images', 1)
             if model.startswith('fal-ai/flux-2'):
