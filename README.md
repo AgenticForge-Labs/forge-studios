@@ -65,6 +65,15 @@ python -m pip install -e '.[full,dev]'
 
 ## Validate and inspect
 
+Forge Studios accepts both ordinary frame prose and the Forge Worlds structured
+`REFERENCE AND GENERATION INSTRUCTIONS` / `SHOT SPECIFICATION (JSON)` /
+`IMAGE PROMPT` envelope. Its frame validator checks the renderable image prose
+and shot-staging text for unwanted temporal action while treating JSON quotation
+marks and reference instructions as metadata. Malformed structured envelopes still
+fail closed. The **entire** original prompt—including JSON and prose—is sent to the
+image provider unchanged; no semantic rewriting occurs in Studios.
+
+
 ```bash
 forge-studios validate episode-package.json
 forge-studios plan --package episode-package.json
