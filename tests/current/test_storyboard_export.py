@@ -123,7 +123,7 @@ def test_export_redacts_sensitive_execution_log_and_provenance(tmp_path):
     p.trace["provider_uri"] = "https://example.org/image.png?signature=private"
     p.trace["authorization"] = "Bearer very-secret-key"
     log = tmp_path / "run.log"
-    log.write_text("started\\nAuthorization: Bearer secret\\nhttps://test.invalid/image.png?token=secret\\nfinished\\n")
+    log.write_text("started\nAuthorization: Bearer secret\nhttps://test.invalid/image.png?token=secret\nfinished\n")
     out = tmp_path / "safe.zip"
     export_storyboard_review(
         p, package_path=path, output_path=out,
