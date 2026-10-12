@@ -85,8 +85,8 @@ bash scripts/run_storyboard_review.sh "$PACKAGE" "$MANIFEST" "$ASSET_ROOT" full 
 ```
 
 This writes a timestamped `*-storyboard-*.zip` to `~/Downloads`, opens that
-folder via `xdg-open`, and leaves the unmodified original package plus
-generated candidate history intact. It writes the foreground log alongside
+folder via `xdg-open`, and retains the production package with its new
+generated candidate history. It writes the foreground log alongside
 the ZIP and embeds a redacted copy. When a provider or validation fails, the
 runner still attempts to export accumulated frames and missing-frame
 diagnostics; it exits with the generation failure status.
