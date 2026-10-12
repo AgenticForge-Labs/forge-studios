@@ -230,7 +230,7 @@ def test_existing_logical_reference_is_bound_before_expensive_generation(tmp_pat
     assert package.find_asset("ember").uri == str((root / "canon" / "ember.png").resolve())
 
 
-def test_paid_runner_uses_normal_mode_verified_dev_runtime_and_resolved_references():
+def test_paid_runner_uses_normal_mode_verified_dev_runtime_and_resolved_references(tmp_path):
     script = (Path(__file__).resolve().parents[2]
               / "scripts" / "run_storyboard_review.sh").read_text()
     assert "FORGE_STUDIOS_MODE=normal python -m forge_studios.runtime_preflight" in script
@@ -238,7 +238,14 @@ def test_paid_runner_uses_normal_mode_verified_dev_runtime_and_resolved_referenc
     assert "--asset-manifest \"$MANIFEST\"" in script
     assert "FORGE_STUDIOS_MODE=cheap" not in script
     assert "--mode cheap" not in script
-    assert "full --confirm-paid" in script
+    _package_obj, path, root, asset_manifest = _package(tmp_path)
+    guarded = subprocess.run([
+        "bash", str(Path(__file__).resolve().parents[2]
+                    / "scripts" / "run_storyboard_review.sh"),
+        str(path), str(asset_manifest), str(root), "full",
+    ], text=True, capture_output=True, check=False)
+    assert guarded.returncode == 2
+    assert "requires --confirm-paid" in guarded.stderr
     parser = build_parser()
     args = parser.parse_args([
         "generate", "--package", "episode-package.json", "--shot-id", "awakening",
