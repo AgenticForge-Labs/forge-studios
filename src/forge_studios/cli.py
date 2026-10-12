@@ -21,9 +21,9 @@ from .timeline_adapter import timeline_from_episode_package
 from .shorts import render_short,write_short_edit_plan
 from .storage import backup_media,publish_release
 
-def _provider(name,output_dir,*,progress=None,client_timeout_seconds=None,poll_interval_seconds=None):
+def _provider(name,output_dir,*,progress=None,client_timeout_seconds=None,poll_interval_seconds=None,image_edit_model=None):
     if name=='mock': return MockProvider(output_dir)
-    if name=='fal': return FalProvider(output_dir=output_dir,progress=progress,client_timeout_seconds=client_timeout_seconds,poll_interval_seconds=poll_interval_seconds)
+    if name=='fal': return FalProvider(output_dir=output_dir,progress=progress,client_timeout_seconds=client_timeout_seconds,poll_interval_seconds=poll_interval_seconds,image_edit_model=image_edit_model)
     raise ValueError(name)
 
 def _media_output_dir(args,p):
@@ -73,6 +73,13 @@ def _package(args):
 def _storyboard(args):
     p=load_package(args.package)
     if args.generate: assert_generation_preflight(p)
+    if args.refresh_model_candidates:
+        if not args.generate or args.provider != 'fal' or not args.image_edit_model:
+            raise ValueError('--refresh-model-candidates requires --generate --provider fal and --image-edit-model')
+        if args.auto_approve:
+            raise ValueError('--refresh-model-candidates cannot auto-approve new images')
+    if args.image_edit_model and args.provider != 'fal':
+        raise ValueError('--image-edit-model requires --provider fal')
     sink=TelemetrySink(args.telemetry)
     manifest=args.asset_manifest; asset_root=args.asset_root
     if args.generate and not manifest and not asset_root:
@@ -83,11 +90,12 @@ def _storyboard(args):
             save_json(args.package,p)
             print(f'bound {len(bound)} missing reference asset(s)')
     if args.generate:
-        animator=AnimatorService(_provider(args.provider,_media_output_dir(args,p),progress=print,client_timeout_seconds=args.provider_timeout,poll_interval_seconds=args.provider_poll_interval),sink)
+        animator=AnimatorService(_provider(args.provider,_media_output_dir(args,p),progress=print,client_timeout_seconds=args.provider_timeout,poll_interval_seconds=args.provider_poll_interval,image_edit_model=args.image_edit_model),sink)
         generated=_run_with_failure_checkpoint(
             args.package,p,
             lambda: generate_boundary_candidates(
                 p,animator,
+                refresh_model=animator.provider.image_edit_model if args.refresh_model_candidates else None,
                 on_frame_complete=lambda package,shot,role,assets: save_json(args.package,package),
                 progress=print,
             ),
@@ -249,7 +257,7 @@ def build_parser():
     p=argparse.ArgumentParser(prog='forge-studios'); sub=p.add_subparsers(dest='cmd',required=True)
     k=sub.add_parser('keys'); ks=k.add_subparsers(dest='action',required=True); st=ks.add_parser('set'); st.add_argument('name'); st.add_argument('value',nargs='?'); ks.add_parser('list'); k.set_defaults(func=_keys)
     v=sub.add_parser('validate'); v.add_argument('path'); v.set_defaults(func=_package)
-    sb=sub.add_parser('storyboard'); sb.add_argument('--package',required=True); sb.add_argument('--out',required=True); sb.add_argument('--generate',action='store_true',help='generate missing start/end boundary-frame candidate pairs before assembling HTML'); sb.add_argument('--auto-approve',action='store_true',help='approve generated boundary frames after the pair is created (off by default for human review)'); sb.add_argument('--asset-manifest',help='asset manifest used to bind missing canonical/reusable references'); sb.add_argument('--asset-root',help='root directory for manifest storage keys'); sb.add_argument('--provider',choices=['mock','fal'],default='mock'); sb.add_argument('--output-dir'); sb.add_argument('--telemetry',default='.agenticforge/telemetry.jsonl'); sb.add_argument('--provider-timeout',type=float,default=None,help='maximum seconds to wait for one provider request (default: 300 or FAL_CLIENT_TIMEOUT_SECONDS)'); sb.add_argument('--provider-poll-interval',type=float,default=None,help='seconds between provider status updates (default: 5 or FAL_POLL_INTERVAL_SECONDS)'); sb.add_argument('--open',action='store_true',help='open the generated boundary-frame storyboard HTML in the system browser'); sb.set_defaults(func=_storyboard)
+    sb=sub.add_parser('storyboard'); sb.add_argument('--package',required=True); sb.add_argument('--out',required=True); sb.add_argument('--generate',action='store_true',help='generate missing start/end boundary-frame candidate pairs before assembling HTML'); sb.add_argument('--auto-approve',action='store_true',help='approve generated boundary frames after the pair is created (off by default for human review)'); sb.add_argument('--asset-manifest',help='asset manifest used to bind missing canonical/reusable references'); sb.add_argument('--asset-root',help='root directory for manifest storage keys'); sb.add_argument('--provider',choices=['mock','fal'],default='mock'); sb.add_argument('--image-edit-model',help='explicit Fal image editing model, without changing other profiles'); sb.add_argument('--refresh-model-candidates',action='store_true',help='regenerate existing mismatched-model boundary candidates; resume by reusing matching local candidates'); sb.add_argument('--output-dir'); sb.add_argument('--telemetry',default='.agenticforge/telemetry.jsonl'); sb.add_argument('--provider-timeout',type=float,default=None,help='maximum seconds to wait for one provider request (default: 300 or FAL_CLIENT_TIMEOUT_SECONDS)'); sb.add_argument('--provider-poll-interval',type=float,default=None,help='seconds between provider status updates (default: 5 or FAL_POLL_INTERVAL_SECONDS)'); sb.add_argument('--open',action='store_true',help='open the generated boundary-frame storyboard HTML in the system browser'); sb.set_defaults(func=_storyboard)
     review=sub.add_parser('storyboard-export',help='package existing storyboard images, references, metadata and diagnostics for offline review (no generation)')
     review.add_argument('--package',required=True)
     review.add_argument('--out',help='output ZIP; defaults to ~/Downloads/<episode>-storyboard-review.zip')
