@@ -51,11 +51,21 @@ def image_model_profile(model: str) -> FalImageModelProfile:
 def resolve_supported_image_size(model: str, width: int, height: int) -> tuple[int, int]:
     """Resolve a mode target to the nearest documented practical 16:9 size.
 
-    FLUX.2 Flash/Flash Edit document a 512px minimum for each custom dimension,
-    so the semantic cheap target 768x432 cannot be sent literally. We scale to
-    the smallest exact integer 16:9 dimensions satisfying that endpoint limit.
-    Explicit per-request ``image_size`` still bypasses this mode-default resolver.
+    FLUX.2 Flash/Flash Edit require a 512px minimum edge. GPT Image 2
+    text-to-image requires both custom dimensions divisible by 16, so a
+    semantic 1920x1080 target becomes an exact 16:9 2048x1152 request.
+    The reference-conditioned GPT edit endpoint retains its field-tested
+    1920x1080 payload. Explicit per-request ``image_size`` bypasses
+    this default resolver.
     """
+    # Fal GPT Image 2 text-to-image validates that both custom edges are
+    # multiples of 16. Keep the semantic target (normally 1920x1080) but
+    # round this particular endpoint upward to the next exact 16:9 size
+    # that meets the schema (2048x1152). The tested GPT edit endpoint's
+    # current 1920x1080 request is intentionally left untouched.
+    if model == 'openai/gpt-image-2' and (width % 16 or height % 16):
+        unit = 16 * math.ceil(max(width / 16, height / 9) / 16)
+        return 16 * unit, 9 * unit
     profile=image_model_profile(model)
     minimum=profile.min_dimension
     if minimum is None or (width >= minimum and height >= minimum):
