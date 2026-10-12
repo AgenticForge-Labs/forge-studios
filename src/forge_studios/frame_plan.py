@@ -252,9 +252,42 @@ def _boundary_prompt_issues(shot: Shot, *, require_compositions: bool = False) -
                     if isinstance(subject, dict):
                         pose = subject.get("shot_pose")
                         if isinstance(pose, str):
-                            markers_in_pose = transient_boundary_markers(pose)
-                            if markers_in_pose:
-                                scan_text += "\n" + pose
+                            pose_parts = [pose]
+                        elif isinstance(pose, dict):
+                            # Writer-owned structured pose: arbitrary anatomy is
+                            # never required. Scan only authored physical pose
+                            # values, not JSON labels or reference metadata.
+                            fields = ("posture", "support", "orientation", "placement", "relative_position")
+                            pose_parts = [pose.get(key, "") for key in fields]
+                            configuration = pose.get("configuration", [])
+                            if isinstance(configuration, list):
+                                pose_parts.extend(configuration)
+                            else:
+                                issues.append(FramePlanIssue(
+                                    "BOUNDARY_FRAME_SPEC_INVALID",
+                                    f"Shot {shot.shot_id!r} {field_name} configuration must be an array.",
+                                    shot.shot_id,
+                                ))
+                                continue
+                            if any(not isinstance(part, str) for part in pose_parts):
+                                issues.append(FramePlanIssue(
+                                    "BOUNDARY_FRAME_SPEC_INVALID",
+                                    f"Shot {shot.shot_id!r} {field_name} pose fields must contain text.",
+                                    shot.shot_id,
+                                ))
+                                continue
+                        elif pose is None:
+                            pose_parts = []
+                        else:
+                            issues.append(FramePlanIssue(
+                                "BOUNDARY_FRAME_SPEC_INVALID",
+                                f"Shot {shot.shot_id!r} {field_name} pose must be a string or object.",
+                                shot.shot_id,
+                            ))
+                            continue
+                        for part in pose_parts:
+                            if transient_boundary_markers(part):
+                                scan_text += "\n" + part
         markers = transient_boundary_markers(scan_text)
         if markers:
             issues.append(FramePlanIssue(
