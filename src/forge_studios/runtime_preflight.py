@@ -2,14 +2,15 @@
 
 Never infer a runtime credential from the Studios default or mix a development
 storyboard experiment with the production Platform Compose project. No provider
-generation requests are made here. Tokens are emitted only on stdout for an
-immediate foreground shell consumer; diagnostics never print their values.
+generation requests are made here. The validated token is supplied only to the invoked child process via its
+private environment; it is never printed or saved in review logs.
 """
 
 from __future__ import annotations
 
 import argparse
 import hmac
+import os
 import json
 import subprocess
 import sys
@@ -136,16 +137,30 @@ def resolve_development_runtime(platform_dir: Path) -> tuple[str, str]:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--platform-dir", type=Path, required=True)
+    parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args()
+    command = list(args.command)
+    if command and command[0] == "--":
+        command.pop(0)
+    if not command:
+        print("[storyboard] preflight requires a command to execute", file=sys.stderr)
+        return 2
     try:
         url, token = resolve_development_runtime(args.platform_dir.expanduser().resolve())
     except DevelopmentRuntimeError as exc:
         print(f"[storyboard] development runtime preflight: {exc}", file=sys.stderr)
         return 2
-    # Only the launcher consumes this output; never pipe it into a log.
-    print(url)
-    print(token)
-    return 0
+    env = os.environ.copy()
+    env["AI_RUNTIME_URL"] = url
+    env["AI_RUNTIME_TOKEN"] = token
+    print(f"[storyboard] verified isolated development runtime {url}", file=sys.stderr)
+    # Replace this process, preserving the child's real exit code. Do not pass
+    # tokens as command-line arguments or emit them to stdout/stderr.
+    try:
+        os.execvpe(command[0], command, env)
+    except OSError:
+        print("[storyboard] cannot execute provider command", file=sys.stderr)
+        return 2
 
 
 if __name__ == "__main__":
