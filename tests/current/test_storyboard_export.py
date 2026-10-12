@@ -98,7 +98,7 @@ def test_incomplete_export_preserves_diagnostics_without_generating(tmp_path):
 
 
 def test_export_does_not_traverse_asset_root(tmp_path):
-    p, path, root, assets = _package(tmp_path)
+    p, path, root, _assets = _package(tmp_path)
     p.assets[0].storage_key = "../outside.png"
     out = tmp_path / "unsafe.zip"
     result = export_storyboard_review(
