@@ -251,16 +251,22 @@ music generation, goes through AgenticForge AI Runtime by default.
   covers the operation.
 - Preserve resolved provider/model, request ID, raw provider result, and Studios
   production metadata in telemetry/provenance.
-- Default local endpoint is `AI_RUNTIME_URL=http://127.0.0.1:8090` with the matching
-  `AI_RUNTIME_TOKEN` supplied by Platform configuration.
+- General API Runtime callers may default to port 8090; **the Episode 1
+  paid storyboard runner may not**. Its normal-profile paid test uses the
+  isolated running `agenticforge-platform-dev` runtime (typically port
+  18090) with verified effective development token, obtained in memory only.
+  Never borrow the production runtime's token or edit live Platform secrets.
 
 ## Runtime notes
 
-Use `--mode cheap` for routine boundary generation unless the user explicitly chooses
-the expensive profile. Current cheap defaults are `fal-ai/flux-2/flash` for images and
-`fal-ai/ltx-2.3-22b/distilled` for video.
-
-The CLI flag is authoritative; do not assume an exported environment variable selected
-cheap mode. Confirm the run log before spending credits.
+Provider generation mode is read from `FORGE_STUDIOS_MODE` by `FalProvider`.
+The standalone `forge-studios generate` and `storyboard` subcommands do
+**not** accept a `--mode` flag. The Episode 1 review runner explicitly uses
+`FORGE_STUDIOS_MODE=normal` per the operator's October 12 instruction:
+reference-conditioned openings target `fal-ai/flux-2-pro/edit` at the normal
+1920×1080 profile. Never silently substitute the cheap profile.
+Before paid generation, `runtime_preflight` verifies the actual development
+Platform container and its credentials without emitting tokens or modifying
+services. Confirm model, image size, provider and cost in the attempt trace.
 
 Never commit credentials or local secret files.
