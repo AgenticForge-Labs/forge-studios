@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import asdict, dataclass
 from difflib import SequenceMatcher
@@ -130,9 +131,46 @@ def _normalized_boundary_prompt(prompt: str | None) -> str:
     return re.sub(r"[^a-z0-9]+", " ", prompt.casefold()).strip()
 
 
+_SHOTA_SPEC_HEADER = "\n\nSHOT SPECIFICATION (JSON)\n"
+_IMAGE_PROSE_HEADER = "\n\nIMAGE PROMPT\n"
+
+
+def _structured_boundary_parts(
+    prompt: str | None,
+) -> tuple[str | None, dict[str, Any] | None, str | None]:
+    """Separate provider instructions/JSON from static image prose without rewriting it.
+
+    An ordinary prose-only producer continues unchanged. A structured producer
+    must supply valid JSON and a complete IMAGE PROMPT; malformed/partial
+    envelopes are rejected rather than hiding their content from validation.
+    """
+    if not isinstance(prompt, str):
+        return None, None, None
+    if not prompt.startswith("REFERENCE AND GENERATION INSTRUCTIONS\n"):
+        return None, None, None
+    if _SHOTA_SPEC_HEADER not in prompt or _IMAGE_PROSE_HEADER not in prompt:
+        return None, None, "missing JSON shot specification or IMAGE PROMPT section"
+    raw_json_and_prose = prompt.split(_SHOTA_SPEC_HEADER, 1)[1]
+    raw_json, prose = raw_json_and_prose.split(_IMAGE_PROSE_HEADER, 1)
+    try:
+        parsed = json.loads(raw_json)
+    except (ValueError, TypeError) as exc:
+        return None, None, f"invalid shot specification JSON: {exc}"
+    if not isinstance(parsed, dict):
+        return None, None, "shot specification must be a JSON object"
+    if parsed.get("media") != "image":
+        return None, None, "image frame shot specification must have media=image"
+    if not prose.strip():
+        return None, None, "IMAGE PROMPT section is empty"
+    return prose, parsed, None
+
+
 def _boundary_core(prompt: str | None) -> str:
     if not isinstance(prompt, str):
         return ""
+    structured_prose, _spec, _error = _structured_boundary_parts(prompt)
+    if structured_prose is not None:
+        prompt = structured_prose
     for marker in (
         "\n\nCanonical visual anchors",
         "\n\nNON-NEGOTIABLE VISUAL RULES",
@@ -155,6 +193,24 @@ def _boundary_prompt_issues(shot: Shot, *, require_compositions: bool = False) -
     issues: list[FramePlanIssue] = []
     for field_name in fields:
         prompt = getattr(shot, field_name, None)
+        structured_prose, spec, structured_error = _structured_boundary_parts(prompt)
+        if structured_error:
+            issues.append(FramePlanIssue(
+                "BOUNDARY_FRAME_SPEC_INVALID",
+                f"Shot {shot.shot_id!r} {field_name} has an invalid structured image prompt: "
+                f"{structured_error}.",
+                shot.shot_id,
+            ))
+            continue
+        if spec is not None and spec.get("frame_role") != (
+            "start_frame" if field_name == "start_frame_prompt" else "end_frame"
+        ):
+            issues.append(FramePlanIssue(
+                "BOUNDARY_FRAME_SPEC_INVALID",
+                f"Shot {shot.shot_id!r} {field_name} structured frame_role does not match.",
+                shot.shot_id,
+            ))
+            continue
         core = _boundary_core(prompt)
         if not core:
             if require_compositions:
@@ -164,7 +220,42 @@ def _boundary_prompt_issues(shot: Shot, *, require_compositions: bool = False) -
                     shot.shot_id,
                 ))
             continue
-        markers = transient_boundary_markers(prompt)
+        # The JSON is a provider instruction, not audible dialogue. Validate
+        # *renderable* staging alongside the complete image prose, but don't
+        # treat explanatory reference policy, JSON punctuation or negative
+        # identity metadata as scene motion.
+        scan_text = core
+        if spec is not None:
+            staging = spec.get("shot_staging", {})
+            if not isinstance(staging, dict):
+                issues.append(FramePlanIssue(
+                    "BOUNDARY_FRAME_SPEC_INVALID",
+                    f"Shot {shot.shot_id!r} {field_name} shot_staging must be an object.",
+                    shot.shot_id,
+                ))
+                continue
+            authored_staging = staging.get("authored_frame_description", "")
+            if not isinstance(authored_staging, str):
+                issues.append(FramePlanIssue(
+                    "BOUNDARY_FRAME_SPEC_INVALID",
+                    f"Shot {shot.shot_id!r} {field_name} authored frame description must be text.",
+                    shot.shot_id,
+                ))
+                continue
+            scan_text += "\n" + authored_staging
+            # The shot_pose is a settled physical configuration. Reject
+            # unmistakably transient poses, but don't treat a walking *stance*
+            # as action prose merely because that word appears in the pose.
+            subjects = spec.get("subjects", [])
+            if isinstance(subjects, list):
+                for subject in subjects:
+                    if isinstance(subject, dict):
+                        pose = subject.get("shot_pose")
+                        if isinstance(pose, str):
+                            markers_in_pose = transient_boundary_markers(pose)
+                            if markers_in_pose:
+                                scan_text += "\n" + pose
+        markers = transient_boundary_markers(scan_text)
         if markers:
             issues.append(FramePlanIssue(
                 "BOUNDARY_FRAME_TRANSIENT_ACTION",
@@ -172,7 +263,7 @@ def _boundary_prompt_issues(shot: Shot, *, require_compositions: bool = False) -
                 "Put intermediate movement in video_prompt instead.",
                 shot.shot_id,
             ))
-        if _NONVISUAL_BOUNDARY_PATTERN.search(core) or re.search(r"[\"“”][^\"“”]+[\"“”]", core):
+        if _NONVISUAL_BOUNDARY_PATTERN.search(scan_text) or re.search(r"[\"“”][^\"“”]+[\"“”]", scan_text):
             issues.append(FramePlanIssue(
                 "BOUNDARY_FRAME_NONVISUAL_OR_TEMPORAL",
                 f"Shot {shot.shot_id!r} {field_name} contains movement, dialogue, audio, or camera motion. "
