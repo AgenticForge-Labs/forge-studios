@@ -112,11 +112,14 @@ bash scripts/run_storyboard_review.sh "$PACKAGE" "$MANIFEST" "$ASSET_ROOT" smoke
 ```
 
 The `smoke` and explicitly confirmed `full` runs select
-`FORGE_STUDIOS_MODE=normal`. As of this branch, normal mode requests
-`fal-ai/flux-2-pro/edit` for a reference-conditioned opening image, with
-a 1920×1080 profile target. The model/provider and actual request are recorded
-in the generated attempt; do not assume the provider accepted an unverified
-dimension until one paid frame succeeds.
+`FORGE_STUDIOS_MODE=normal` **with an explicit OpenAI image-edit model
+override**: `openai/gpt-image-2/edit` through Fal/AI Runtime. The original
+normal-mode FLUX.2 Pro default is unchanged for unrelated Studios callers.
+The GPT override uses the image-target profile 1920×1080, one image/request,
+and `quality=high`, matching the successful Awakening model comparison.
+Check actual returned dimensions and provider charges in the attempt records;
+the provider may round dimensions. The episode's authored frame and video
+prompts are never rewritten by Studios.
 
 **Runtime authentication isolation:** The October 12 first smoke got
 `401 Invalid runtime token` at `127.0.0.1:8090`. This was an AI Runtime
@@ -255,12 +258,55 @@ against actual responses by local Codex/operator before adopting one model as
 a normal Studios profile. Do not merge a model choice into `main` based only
 on a single sample.
 
-## Full frame production after human approval
+## Registered Episode 1 storyboard production: GPT Image 2
+
+The original Awakenings FLUX.2 Pro candidate was technically successful but
+not selected for production. The Fal model comparison made one better OpenAI
+image in a separate **read-only** ZIP. To have **all ten storyboard still
+frames registered together in the actual EpisodePackage**, run the existing
+Studios Animator via the guarded full storyboard command:
 
 ```bash
-# Makes at most the missing, authored start/end candidates. No auto-approvals.
+cd ~/code/forge-studios
+git fetch origin
+git switch feature/storyboard-review-export
+git pull --ff-only
+uv sync --extra dev
+
+PACKAGE=/home/larry/code/forge-worlds/temp/episode1-20261012-002311/episode-package.json
+MANIFEST=/home/larry/code/forge-born/assets/forge-born.yaml
+ASSET_ROOT=/home/larry/code/forge-assets
+
+# Optional, free validation and original-package backup before paid inference:
+.venv/bin/forge-studios validate "$PACKAGE"
+cp -p "$PACKAGE" "${PACKAGE%.json}.before-gpt-storyboard.json"
+
+# PAID: one image per unfinished/mismatched shot, subject to existing
+# start/end plans. For Episode 1, all 10 shots are start_only.
 bash scripts/run_storyboard_review.sh "$PACKAGE" "$MANIFEST" "$ASSET_ROOT" full --confirm-paid
 ```
+
+The production CLI now supports
+`--image-edit-model openai/gpt-image-2/edit --refresh-model-candidates`.
+This **does not delete FLUX candidate history** or auto-approve anything.
+It generates and registers a new unapproved OpenAI start-frame candidate for
+Awakening, then produces the nine missing start frames. The shot order, source
+references, authored prompts, asset identity and provider attempt evidence
+are preserved. Completed frames are checkpointed in the original package
+immediately after each successful request. If interrupted, the same command
+**reuses matching local OpenAI candidates** with the same authored prompt and
+reference IDs rather than charging again; an absent file, changed prompt,
+changed reference list or mismatched model triggers generation instead.
+A preflight fails before any paid request if a shot already has a human-approved
+boundary or lacks the references required by the selected image editor.
+Do not unapprove accepted media silently to force a refresh.
+
+This is **only still-image generation**, not video; the video model shown in
+the generation-profile log is configuration only. The `full --confirm-paid`
+flag is an explicit consent to paid inference, and Fal charges are not covered
+by Modal credits. Existing OpenAI comparison images remain reference evidence,
+not production assets. If the provider returns an error, the runner exports a
+partial ZIP with diagnostics and exits nonzero instead of claiming success.
 
 This writes a timestamped `*-storyboard-*.zip` to `~/Downloads`, opens that
 folder via `xdg-open`, and retains the production package with its new
@@ -316,7 +362,7 @@ The `20261012T153802Z` smoke attempt failed before generating any
 images: Studios attempted `127.0.0.1:8090` and received HTTP 401 with
 `Invalid runtime token`. The resulting export still reports zero frames,
 and the original EpisodePackage now retains that failed attempt as evidence.
-The normal-mode runner verifies a distinct **development** Runtime before a
+The GPT Image 2 runner verifies a distinct **development** Runtime before a
 paid request. It also passes `--asset-manifest` and `--asset-root` so
 existing logical `asset://` references resolve to canonical local images
 before calling the provider. The full batch uses the same normal profile and
