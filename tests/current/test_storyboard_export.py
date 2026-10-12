@@ -9,6 +9,8 @@ from zipfile import ZipFile
 
 import yaml
 
+from forge_studios.ai_runtime import runtime_asset
+from forge_studios.asset_resolution import bind_missing_references
 from forge_studios.cli import build_parser
 from forge_studios.contracts import AssetRecord, EpisodePackage, Shot
 from forge_studios.storyboard_export import export_storyboard_review
@@ -172,3 +174,73 @@ def test_runner_rejects_review_zip_as_live_package(tmp_path):
     )
     assert result.returncode == 2
     assert "Pass the validated episode-package.json" in result.stderr
+
+
+def test_reference_gallery_exposes_canon_before_frames(tmp_path):
+    package, package_path, root, manifest_path = _package(tmp_path)
+    package.shots[0].start_frame_asset_ids = []
+    package.assets.pop()
+    output = tmp_path / "review.zip"
+    export_storyboard_review(
+        package, package_path=package_path, output_path=output,
+        asset_root=root, asset_manifest=manifest_path,
+    )
+    with ZipFile(output) as archive:
+        manifest = json.loads(archive.read("manifest.json"))
+        assert manifest["frame_count"] == 0
+        assert not manifest["complete"]
+        assert manifest["reference_gallery"] == "canonical-references.html"
+        html = archive.read("canonical-references.html").decode()
+        assert "Existing canonical references" in html
+        assert 'src="images/001.png"' in html
+        assert "ember" in html
+        assert "canonical-references.html" in archive.read("storyboard.html").decode()
+        assert archive.read("images/001.png") == _PNG
+        assert b"No local storyboard frames available" in archive.read("contact-sheet.svg")
+
+
+def test_mislabeled_jpeg_keeps_original_bytes_but_uses_truthful_transport_type(tmp_path):
+    package, package_path, root, manifest_path = _package(tmp_path)
+    # The real Episode 1 first canonical *.png contains JPEG data.
+    jpeg_magic = b"\\xff\\xd8\\xff" + b"fake-jpeg-payload"
+    (root / "canon" / "ember.png").write_bytes(jpeg_magic)
+    package.shots[0].start_frame_asset_ids = []
+    package.assets.pop()
+    output = tmp_path / "review.zip"
+    export_storyboard_review(
+        package, package_path=package_path, output_path=output,
+        asset_root=root, asset_manifest=manifest_path,
+    )
+    with ZipFile(output) as archive:
+        assert archive.read("images/001.jpg") == jpeg_magic
+        assert b"images/001.jpg" in archive.read("canonical-references.html")
+    runtime_assets = {}
+    uri = runtime_asset(str(root / "canon" / "ember.png"),
+                        assets=runtime_assets, asset_id="ember")
+    assert uri == "asset://ember"
+    assert runtime_assets["ember"]["content_type"] == "image/jpeg"
+    assert runtime_assets["ember"]["filename"].endswith(".jpg")
+
+
+def test_existing_logical_reference_is_bound_before_expensive_generation(tmp_path):
+    package, _path, root, manifest = _package(tmp_path)
+    assert package.find_asset("ember").uri == "asset://ember"
+    changed = bind_missing_references(package, manifest_path=manifest, asset_root=root)
+    assert [asset.asset_id for asset in changed] == ["ember"]
+    assert package.find_asset("ember").uri == str((root / "canon" / "ember.png").resolve())
+
+
+def test_paid_runner_uses_supported_cheap_mode_and_resolved_references():
+    script = (Path(__file__).resolve().parents[2]
+              / "scripts" / "run_storyboard_review.sh").read_text()
+    assert "FORGE_STUDIOS_MODE=cheap forge-studios generate" in script
+    assert "FORGE_STUDIOS_MODE=cheap forge-studios storyboard" in script
+    assert "--asset-manifest \"$MANIFEST\"" in script
+    assert "--mode cheap" not in script
+    parser = build_parser()
+    args = parser.parse_args([
+        "generate", "--package", "episode-package.json", "--shot-id", "awakening",
+        "--provider", "mock", "--asset-manifest", "manifest.yaml",
+        "--asset-root", "assets",
+    ])
+    assert args.asset_manifest == "manifest.yaml"
