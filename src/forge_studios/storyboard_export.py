@@ -99,6 +99,7 @@ def export_storyboard_review(
     asset_root: str | Path | None = None,
     asset_manifest: str | Path | None = None,
     telemetry_path: str | Path | None = None,
+    log_path: str | Path | None = None,
     git_shas: dict[str, str] | None = None,
 ) -> dict:
     """Export a self-contained review ZIP even when only some frames exist.
@@ -211,6 +212,18 @@ def export_storyboard_review(
         png_available = True
     except ImportError:
         pass  # SVG contact sheet is always generated without optional Pillow.
+
+    if log_path:
+        log = Path(log_path).expanduser()
+        if log.is_file():
+            clean_lines = []
+            for line in log.read_text(errors="replace")[-1_000_000:].splitlines():
+                if re.search(r"(?i)\\b(token|secret|password|api[_-]?key|authorization|credential|cookie)\\b", line):
+                    clean_lines.append("[REDACTED LOG LINE]")
+                else:
+                    line = re.sub(r"https?://\\S+\\?\\S+", "[REDACTED URL]", line)
+                    clean_lines.append(_SECRET_VALUE.sub("[REDACTED]", line))
+            payloads["execution-log.txt"] = ("\\n".join(clean_lines) + "\\n").encode("utf-8")
 
     if telemetry_path:
         telemetry = Path(telemetry_path).expanduser()
