@@ -18,9 +18,14 @@ Review files include:
   EpisodePackage, with bundled asset URIs. This copy is **not** the production
   file to resume or approve from. Keep the original on your workstation.
 - `storyboard.html` and `storyboard.image-guide.html`, with relative local
-  image paths that work inside the extracted ZIP.
+  image paths that work inside the extracted ZIP. Their links open
+  `canonical-references.html`, a browsable gallery of the existing reference
+  images even when zero storyboard frames have been generated.
 - `images/`: exact original raster bytes for selected opening/closing frames
   and referenced canonical assets, not compressed or resized substitutes.
+  When a legacy `.png` path contains JPEG bytes, the portable image copy gets
+  a truthful `.jpg` extension; source canonical files are **not** rewritten.
+  The AI Runtime upload adapter likewise uses detected raster MIME/extension.
 - `contact-sheet.svg`: always present, embeds all available frames with
   sequence labels. `contact-sheet.png` is also present when Pillow is
   installed (`python -m pip install Pillow`).
@@ -192,3 +197,24 @@ Keep clip provenance and render via the existing Filmmaker timeline. Video
 duration segmentation/provider support is a separate validated stage.
 No claim is made here that an image-to-video model can produce a complete
 20-second shot from these stills without testing.
+
+## Current Episode 1 pre-generation review
+
+The operator's `s01e01_awakening-storyboard-20261012T153742Z.zip`
+contains **7/7 existing canonical reference assets, 0/10 start-frame candidates,
+and 0 recorded Forge Studios frame attempts**. Its 309 historical event records
+belong to prior episode authoring, not frame rendering. The original export
+had a no-frames placeholder and no displayed canon gallery; the repair above
+makes pre-generation references visible. Do not modify the uploaded ZIP to
+make it look as if images have been generated.
+
+The `smoke` path sets `FORGE_STUDIOS_MODE=cheap`, the actual profile knob
+read by `FalProvider` (the `generate` CLI does **not** accept `--mode`).
+It passes `--asset-manifest` and `--asset-root` so existing logical
+`asset://` references resolve to real canonical local images before any
+request is sent; the single-shot command fails safely if a reference remains
+unreadable. The full batch uses the same cheap environment configuration.
+The cheap Fal endpoint incurs Fal/provider charges, not Modal credit.
+Use `export` for no-inference inspection first and the `smoke` mode only
+when explicitly ready to incur a provider charge.
+
