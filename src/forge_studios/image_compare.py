@@ -17,6 +17,7 @@ import sys
 import time
 import zipfile
 from pathlib import Path
+from datetime import datetime, timezone
 from urllib.parse import urlsplit
 from uuid import uuid4
 
@@ -316,7 +317,9 @@ def main(argv: list[str] | None = None) -> int:
                         help="Actually run one metered Fal request per selected model")
     args = parser.parse_args(argv)
     selected = parse_models(args.models)
-    target = args.out or (Path.home() / "Downloads" / f"{args.shot_id}-model-compare.zip")
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    safe_shot = re.sub(r"[^A-Za-z0-9_-]", "-", args.shot_id)
+    target = args.out or (Path.home() / "Downloads" / f"{safe_shot}-model-compare-{stamp}.zip")
     result = compare(args.package, args.asset_manifest, args.asset_root, target,
                      shot_id=args.shot_id, models=selected, confirm_paid=args.confirm_paid)
     print(json.dumps({"zip": result["output"], "paid": result["paid_calls_enabled"],
