@@ -70,26 +70,6 @@ if [[ "$STATUS" -ne 0 && "$RUN" != export ]]; then
   echo "[storyboard] validation failed; paid generation skipped" | tee -a "$LOG"
   RUN=export
 fi
-# Paid generation is development-only. Verify the running development
-# Compose container, its token, environment, and isolated host port first.
-# No credentials are written to disk or echoed; no services are changed.
-if [[ "$RUN" != export ]]; then
-  RUNTIME_SETTINGS=$(python -m forge_studios.runtime_preflight \
-    --platform-dir "$STUDIOS_DIR/../agenticforge-platform" 2>>"$LOG") || {
-      STATUS=2
-      RUN=export
-      tail -n 1 "$LOG" >&2
-    }
-  if [[ "$RUN" != export ]]; then
-    mapfile -t RUNTIME_LINES <<< "$RUNTIME_SETTINGS"
-    AI_RUNTIME_URL="${RUNTIME_LINES[0]}"
-    AI_RUNTIME_TOKEN="${RUNTIME_LINES[1]}"
-    export AI_RUNTIME_URL AI_RUNTIME_TOKEN
-    echo "[storyboard] isolated development runtime verified at $AI_RUNTIME_URL" | tee -a "$LOG"
-    echo "[storyboard] generation profile: normal (Fal charges apply)" | tee -a "$LOG"
-    unset RUNTIME_SETTINGS RUNTIME_LINES
-  fi
-fi
 if [[ "$RUN" == smoke ]]; then
   SHOT=$(python - "$PACKAGE" <<'PY'
 import json, sys
@@ -98,13 +78,15 @@ print(v['shots'][0]['shot_id'])
 PY
 )
   echo "[storyboard] generating one start frame for $SHOT" | tee -a "$LOG"
-  FORGE_STUDIOS_MODE=normal forge-studios generate --package "$PACKAGE" --shot-id "$SHOT" --role start_frame \
+  FORGE_STUDIOS_MODE=normal python -m forge_studios.runtime_preflight \
+    --platform-dir "$STUDIOS_DIR/../agenticforge-platform" -- forge-studios generate --package "$PACKAGE" --shot-id "$SHOT" --role start_frame \
     --provider fal --asset-manifest "$MANIFEST" --asset-root "$ASSET_ROOT" --telemetry "$TELEMETRY" \
     2>&1 | tee -a "$LOG"
   STATUS=${PIPESTATUS[0]}
 elif [[ "$RUN" == full ]]; then
-  echo "[storyboard] full ten-shot normal-profile paid generation explicitly confirmed" | tee -a "$LOG"
-  FORGE_STUDIOS_MODE=normal forge-studios storyboard --package "$PACKAGE" \
+  echo "[storyboard] full ten-shot NORMAL-profile paid generation explicitly confirmed" | tee -a "$LOG"
+  FORGE_STUDIOS_MODE=normal python -m forge_studios.runtime_preflight \
+    --platform-dir "$STUDIOS_DIR/../agenticforge-platform" -- forge-studios storyboard --package "$PACKAGE" \
     --out "$OUTPUT_DIR/${EPISODE}-storyboard-${TIMESTAMP}.html" --generate \
     --provider fal --asset-manifest "$MANIFEST" \
     --asset-root "$ASSET_ROOT" --telemetry "$TELEMETRY" \
