@@ -117,6 +117,11 @@ override**: `openai/gpt-image-2/edit` through Fal/AI Runtime. The original
 normal-mode FLUX.2 Pro default is unchanged for unrelated Studios callers.
 The GPT override uses the image-target profile 1920×1080, one image/request,
 and `quality=high`, matching the successful Awakening model comparison.
+The startup `[generation] image_edit_model=...` line now reflects the
+explicit CLI override; before this diagnostic fix it incorrectly printed the
+default FLUX.2 Pro model even though the actual provider request used GPT2.
+For an already-running batch, the authoritative per-shot line is
+`[ai-runtime/fal] <shot> start_frame: mode=normal model=openai/gpt-image-2/edit`.
 Check actual returned dimensions and provider charges in the attempt records;
 the provider may round dimensions. The episode's authored frame and video
 prompts are never rewritten by Studios.
