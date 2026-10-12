@@ -78,17 +78,17 @@ print(v['shots'][0]['shot_id'])
 PY
 )
   echo "[storyboard] generating one start frame for $SHOT" | tee -a "$LOG"
-  FORGE_STUDIOS_MODE=normal python -m forge_studios.runtime_preflight \
+  FORGE_STUDIOS_MODE=normal FAL_IMAGE_EDIT_MODEL=openai/gpt-image-2/edit python -m forge_studios.runtime_preflight \
     --platform-dir "$STUDIOS_DIR/../agenticforge-platform" -- forge-studios generate --package "$PACKAGE" --shot-id "$SHOT" --role start_frame \
     --provider fal --asset-manifest "$MANIFEST" --asset-root "$ASSET_ROOT" --telemetry "$TELEMETRY" \
     2>&1 | tee -a "$LOG"
   STATUS=${PIPESTATUS[0]}
 elif [[ "$RUN" == full ]]; then
-  echo "[storyboard] full ten-shot NORMAL-profile paid generation explicitly confirmed" | tee -a "$LOG"
+  echo "[storyboard] refresh unapproved storyboard stills via GPT Image 2 / Fal; no video or automatic approvals" | tee -a "$LOG"
   FORGE_STUDIOS_MODE=normal python -m forge_studios.runtime_preflight \
     --platform-dir "$STUDIOS_DIR/../agenticforge-platform" -- forge-studios storyboard --package "$PACKAGE" \
     --out "$OUTPUT_DIR/${EPISODE}-storyboard-${TIMESTAMP}.html" --generate \
-    --provider fal --asset-manifest "$MANIFEST" \
+    --provider fal --image-edit-model openai/gpt-image-2/edit --refresh-model-candidates --asset-manifest "$MANIFEST" \
     --asset-root "$ASSET_ROOT" --telemetry "$TELEMETRY" \
     2>&1 | tee -a "$LOG"
   STATUS=${PIPESTATUS[0]}
