@@ -176,6 +176,85 @@ Inspect the initial generated frame for Ember identity, Forge geometry, camera,
 pre-action state, and provider cost/latency. Do not pay for nine further shots
 until the first sample and its economics are acceptable.
 
+## Compare Fal-hosted image editors (no new API keys)
+
+**Experimental / before shot approval.** The original FLUX.2 Pro image failed
+human composition and Ember-identity review; it remains as an unapproved
+candidate in the original production package. Rather than rerun story
+authoring or independently contact OpenAI/Google, compare the **identical**
+package-authored opening prompt and two ordered canonical images in one
+separate local review ZIP, with no production state mutation.
+
+All selected models run through the existing **development Platform AI
+Runtime → Fal** infrastructure:
+
+| Comparison label | Fal image-editing model |
+|---|---|
+| openai | `openai/gpt-image-2/edit` |
+| nano | `fal-ai/nano-banana-2/edit` |
+| klein | `fal-ai/flux-2/klein/4b/edit` (open-weight) |
+| qwen | `fal-ai/qwen-image-edit-2511` (open-weight) |
+
+Each model receives precisely the same `start_frame_prompt` and the same
+reference order as in the input EpisodePackage. Its adapter supplies only
+the model's documented *transport/output-control* options (GPT high 1920×1080,
+Nano Banana 2 2K 16:9, Klein/Qwen landscape 16:9).
+Actual dimensions can differ. This compares prompt following, not perfectly
+matched pixel-level size/seed. No one-model prompt tuning is done.
+
+From your existing checkout, **do not use pip or install anything globally**:
+
+```bash
+cd ~/code/forge-studios
+git switch feature/storyboard-review-export
+git pull --ff-only
+uv sync --extra dev
+
+PACKAGE=/home/larry/code/forge-worlds/temp/episode1-20261012-002311/episode-package.json
+MANIFEST=/home/larry/code/forge-born/assets/forge-born.yaml
+ASSET_ROOT=/home/larry/code/forge-assets
+
+# Free, offline review ZIP with exact frozen prompt, reference images,
+# existing Fal Pro candidate, and models planned for comparison.
+bash scripts/run_image_model_comparison.sh "$PACKAGE" "$MANIFEST" "$ASSET_ROOT"
+
+# Explicitly billed: one image request for each of four models,
+# launched concurrently by the Python code. No retries.
+bash scripts/run_image_model_comparison.sh "$PACKAGE" "$MANIFEST" "$ASSET_ROOT" --confirm-paid
+
+# Or test just two, at lower total cost:
+bash scripts/run_image_model_comparison.sh "$PACKAGE" "$MANIFEST" "$ASSET_ROOT" \
+  --models openai,nano --confirm-paid
+```
+
+The script uses `.venv/bin/python` directly, solving the Ubuntu
+`externally-managed-environment` error from accidentally invoking system pip.
+You **do not** need `OPENAI_API_KEY`, `GOOGLE_API_KEY`, or a separate
+Fal key in the Studios shell. Only the existing configured development Platform
+Runtime (usually loopback 18090) holds the Fal credential.
+The paid path uses the same `runtime_preflight.py` security check as the
+normal production one-frame smoke, refuses production runtime/identity, and
+passes its runtime token only in memory to the child.
+
+The result ZIP is in `~/Downloads`. It contains `index.html`, the original
+prompt, the exact reference pixels, the existing FLUX.2 Pro image when available,
+each successful model image, per-model failure records and request metadata,
+and `SHA256SUMS`. **No generated comparison is registered/approved in the
+production EpisodePackage.** The script does not generate video or call the
+original ten-shot storyboard generator. If some providers fail, successful
+outputs still get packaged.
+
+These are **paid Fal calls**, separate from Modal credits. Billing depends on
+model, output size, input images and prompt, and no cost ceiling can be
+guaranteed by the runner. The manifest marks unreturned actual charges as
+unknown rather than zero; inspect the Fal dashboard. Check your budget before
+choosing all four. The `--confirm-paid` flag is required to spend.
+
+The model-specific execution wrapper is experimental; it must be validated
+against actual responses by local Codex/operator before adopting one model as
+a normal Studios profile. Do not merge a model choice into `main` based only
+on a single sample.
+
 ## Full frame production after human approval
 
 ```bash
