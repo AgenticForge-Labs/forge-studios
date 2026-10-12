@@ -64,8 +64,11 @@ Animator. With the default `FORGE_STUDIOS_MODE=normal`:
 - **Reference-conditioned requests** use `openai/gpt-image-2/edit`
   with the authored ordered canonical images. The endpoint name describes
   Fal's input contract, not whether the output is a newly generated frame.
-- Both request `quality=high`, `num_images=1`, and a 1920×1080 target;
-  the actual returned resolution remains provider evidence.
+- Both request `quality=high`, `num_images=1`. Normal mode targets
+  1920×1080; Fal text generation requires both edges divisible by 16, so
+  that provider request rounds to 2048×1152. The reference-conditioned
+  endpoint retains the validated 1920×1080 request. Actual returned
+  dimensions remain provider evidence.
 - `FORGE_STUDIOS_MODE=cheap` intentionally retains FLUX Flash for
   low-cost experimentation. Provider/model overrides take precedence.
 - Existing video generation, media attribution and approval policies
