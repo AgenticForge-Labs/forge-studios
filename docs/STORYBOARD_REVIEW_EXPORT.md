@@ -115,8 +115,10 @@ The `smoke` and explicitly confirmed `full` runs select
 `FORGE_STUDIOS_MODE=normal` **with an explicit OpenAI image-edit model
 override**: `openai/gpt-image-2/edit` through Fal/AI Runtime. The original
 normal-mode FLUX.2 Pro default is unchanged for unrelated Studios callers.
-The GPT override uses the image-target profile 1920×1080, one image/request,
-and `quality=high`, matching the successful Awakening model comparison.
+The explicit GPT edit selection is retained for reproducibility, although
+it now matches the **global normal-mode reference-image default**. It uses
+the image-target profile 1920×1080, one image/request, and `quality=high`,
+matching the successful Awakening model comparison.
 The startup `[generation] image_edit_model=...` line now reflects the
 explicit CLI override; before this diagnostic fix it incorrectly printed the
 default FLUX.2 Pro model even though the actual provider request used GPT2.
@@ -262,6 +264,21 @@ The model-specific execution wrapper is experimental; it must be validated
 against actual responses by local Codex/operator before adopting one model as
 a normal Studios profile. Do not merge a model choice into `main` based only
 on a single sample.
+
+## Current Studios image defaults
+
+GPT Image 2 is now the **global normal-profile default** through Fal:
+`openai/gpt-image-2` for zero-reference text-to-image requests, and
+`openai/gpt-image-2/edit` for shots with canonical reference images.
+Both target 1920×1080, one image at high quality. The edit endpoint is
+also used to **create a new storyboard frame** from references; no previous
+candidate is overwritten. There is no additional OpenAI API key in Studios.
+
+The `cheap` profile remains the explicit FLUX Flash option. This
+decision affects image defaults only: video generation profiles, model
+overrides, approved assets, prompt ownership and development-runtime
+isolation do not change. Reconsider the normal image choice if the next
+multi-shot review shows regressions.
 
 ## Registered Episode 1 storyboard production: GPT Image 2
 
