@@ -117,6 +117,21 @@ generate, auto-approve, rewrite canon, or become the resume/approval source.
 See `docs/STORYBOARD_REVIEW_EXPORT.md` for the guarded foreground runner,
 one-shot paid smoke, and ZIP review workflow.
 
+## Registered image-only storyboard refresh
+
+The Episode 1 foreground production runner selects `openai/gpt-image-2/edit`
+via the existing Fal-backed AI Runtime. Only the explicit
+`forge-studios storyboard --generate --provider fal --image-edit-model
+openai/gpt-image-2/edit --refresh-model-candidates` path refreshes existing
+non-approved frames by model while reusing already registered matching local
+candidates. Never delete earlier FLUX attempts, silently alter authored
+prompts or auto-approve the new results. It checkpoints each new candidate in
+the source package and retains it for human storyboard review. This is
+not video generation, and the development Runtime preflight and explicit
+`full --confirm-paid` budget gate are mandatory in the foreground runner.
+The shared normal-mode model default remains FLUX.2 Pro for other callers.
+See `docs/STORYBOARD_REVIEW_EXPORT.md` for operator commands.
+
 ## Experimental image-provider comparisons
 
 `scripts/run_image_model_comparison.sh` and `image_compare.py` compare
