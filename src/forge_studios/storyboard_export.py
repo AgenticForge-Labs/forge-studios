@@ -13,24 +13,12 @@ from urllib.parse import urlsplit
 from zipfile import ZIP_DEFLATED, ZipFile
 
 from .contracts import EpisodePackage
+from .media_types import sniff_image_bytes
 from .storyboard import build_storyboard
 
 _IMAGE_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".gif": "image/gif"}
 _SECRET_KEY = re.compile(r"(^|_)(token|secret|password|api_key|authorization|credential|cookie)(_|$)", re.IGNORECASE)
 _SECRET_VALUE = re.compile(r"(?i)(bearer\s+\S+|sk-[a-z0-9_-]{16,})")
-
-
-def _content_type(data: bytes) -> tuple[str, str] | None:
-    """Use actual raster signatures, not misleading source filename suffixes."""
-    if data.startswith(b"\\x89PNG\\r\\n\\x1a\\n"):
-        return ".png", "image/png"
-    if data.startswith(b"\\xff\\xd8\\xff"):
-        return ".jpg", "image/jpeg"
-    if data.startswith((b"GIF87a", b"GIF89a")):
-        return ".gif", "image/gif"
-    if data.startswith(b"RIFF") and data[8:12] == b"WEBP":
-        return ".webp", "image/webp"
-    return None
 
 
 def _scrub(value):
@@ -148,7 +136,7 @@ def export_storyboard_review(
         asset = review.find_asset(asset_id)
         path = _resolve_media(asset, source.parent, root, storage_keys)
         data = path.read_bytes() if path is not None else b""
-        signature = _content_type(data)
+        signature = sniff_image_bytes(data)
         if signature is None:
             unresolved.add(asset_id)
             missing.append({"asset_id": asset_id, "label": label, "reason": "local supported raster image unavailable"})
