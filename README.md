@@ -123,15 +123,21 @@ handoff.
 
 ### Production storyboard GPT Image 2 refresh
 
-The `scripts/run_storyboard_review.sh` foreground runner now uses an
-explicit `openai/gpt-image-2/edit` Fal model override for Episode 1
-still-image generation. Its `full --confirm-paid` mode invokes the regular
-Studios Animator, refreshes any mismatched prior candidates, registers
-new per-shot assets/attempts in the **original EpisodePackage**, checkpoints
-after each successful image, and resumes without repeating matching local
-GPT results. There is no automatic approval, video generation, or rewrite of
-Forge Worlds' authored prompts. Provider/model defaults for other projects
-are unchanged. See `docs/STORYBOARD_REVIEW_EXPORT.md`.
+The **global normal** mode now uses GPT Image 2 through Fal for both
+text-to-image (`openai/gpt-image-2`) and reference-conditioned image
+generation (`openai/gpt-image-2/edit`). Each requests one high-quality image,
+targeting 1920×1080. Use explicit `cheap` mode for the older FLUX Flash
+models. Per-model overrides remain available; video model defaults are unchanged.
+
+The `scripts/run_storyboard_review.sh` foreground runner keeps its
+explicit `openai/gpt-image-2/edit` Fal model selection for reproducible
+Episode 1 registered still-image generation. Its `full --confirm-paid` mode
+invokes the ordinary Studios Animator, refreshes any mismatched prior
+candidates, registers new per-shot assets/attempts in the **original
+EpisodePackage**, checkpoints after each successful image, and resumes
+without repeating matching local GPT results. There is no automatic approval,
+video generation, or rewrite of Forge Worlds' authored prompts. See
+`docs/STORYBOARD_REVIEW_EXPORT.md`.
 
 ### Fal-only model comparisons
 
@@ -186,8 +192,9 @@ asset inputs; Runtime uploads them to fal.ai and substitutes only those transpor
 references. Runtime must not rewrite prompts or infer production intent.
 
 `FalProvider` reads `FORGE_STUDIOS_MODE` for the selected generation
-profile; the single-shot `generate` and `storyboard` CLI commands do not
-support `--mode`. The Episode 1 paid storyboard runner uses the explicit
+profile; its default `normal` profile now uses GPT Image 2 for **both**
+text-to-image and reference-conditioned image generation. The single-shot
+`generate` and `storyboard` CLI commands do not support `--mode`. The Episode 1 paid storyboard runner uses the explicit
 **normal** profile and verifies the running isolated Platform development
 runtime/token before generating. The offline export remains free. See
 `docs/STORYBOARD_REVIEW_EXPORT.md` for the signed-off one-frame workflow,
