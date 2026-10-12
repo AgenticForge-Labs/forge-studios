@@ -18,7 +18,7 @@ from .storyboard import build_storyboard
 
 _IMAGE_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".gif": "image/gif"}
 _SECRET_KEY = re.compile(r"(^|_)(token|secret|password|api_key|authorization|credential|cookie)(_|$)", re.I)
-_SECRET_VALUE = re.compile(r"(?i)(bearer\\s+\\S+|sk-[a-z0-9_-]{16,})")
+_SECRET_VALUE = re.compile(r"(?i)(bearer\s+\S+|sk-[a-z0-9_-]{16,})")
 
 
 def _scrub(value):
@@ -218,12 +218,12 @@ def export_storyboard_review(
         if log.is_file():
             clean_lines = []
             for line in log.read_text(errors="replace")[-1_000_000:].splitlines():
-                if re.search(r"(?i)\\b(token|secret|password|api[_-]?key|authorization|credential|cookie)\\b", line):
+                if re.search(r"(?i)\b(token|secret|password|api[_-]?key|authorization|credential|cookie)\b", line):
                     clean_lines.append("[REDACTED LOG LINE]")
                 else:
-                    line = re.sub(r"https?://\\S+\\?\\S+", "[REDACTED URL]", line)
+                    line = re.sub(r"https?://\S+\?\S+", "[REDACTED URL]", line)
                     clean_lines.append(_SECRET_VALUE.sub("[REDACTED]", line))
-            payloads["execution-log.txt"] = ("\\n".join(clean_lines) + "\\n").encode("utf-8")
+            payloads["execution-log.txt"] = ("\n".join(clean_lines) + "\n").encode("utf-8")
 
     if telemetry_path:
         telemetry = Path(telemetry_path).expanduser()
