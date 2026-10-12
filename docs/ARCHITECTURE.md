@@ -54,6 +54,27 @@ intent. AgenticForge AI Runtime owns provider credentials and authenticated netw
 transport. For fal.ai, Studios compiles the exact request, supplies explicit local assets,
 and Runtime performs upload/provider execution without changing prompt semantics.
 
+## Image model routing and global defaults
+
+Studios has two deterministic Fal image execution routes under its shared
+`FalProvider`; both produce new registered candidate images when called by
+Animator. With the default `FORGE_STUDIOS_MODE=normal`:
+
+- **Text-only image requests** use `openai/gpt-image-2` (Fal text-to-image).
+- **Reference-conditioned requests** use `openai/gpt-image-2/edit`
+  with the authored ordered canonical images. The endpoint name describes
+  Fal's input contract, not whether the output is a newly generated frame.
+- Both request `quality=high`, `num_images=1`, and a 1920×1080 target;
+  the actual returned resolution remains provider evidence.
+- `FORGE_STUDIOS_MODE=cheap` intentionally retains FLUX Flash for
+  low-cost experimentation. Provider/model overrides take precedence.
+- Existing video generation, media attribution and approval policies
+  are unchanged; Platform AI Runtime still handles credentials and upload.
+
+This is a selected quality default subject to future evaluation, not a
+claim that any model is universally superior. Show-specific semantic intent
+continues to come from Forge Worlds/authoritative EpisodePackages.
+
 ## Prompt execution
 
 Forge Worlds (or another package author) supplies complete provider-facing shot prompts
