@@ -83,7 +83,7 @@ def test_real_fal_transport_contract_for_text_and_reference_generation(
     first, second = runtime.requests
     assert first["model"] == "openai/gpt-image-2"
     assert first["arguments"] == {
-        "prompt": text_only.prompt, "image_size": {"width": 1920, "height": 1080},
+        "prompt": text_only.prompt, "image_size": {"width": 2048, "height": 1152},
         "quality": "high", "num_images": 1,
     }
     assert first["assets"] == {}
@@ -117,3 +117,10 @@ def test_model_overrides_are_still_independent(monkeypatch):
     )
     assert "image_generate_model" in unchanged.explicit_overrides
     assert "image_edit_model" in unchanged.explicit_overrides
+
+def test_text_size_default_is_fal_valid_and_edit_target_remains_unchanged():
+    from forge_studios.providers.fal import resolve_supported_image_size
+
+    assert resolve_supported_image_size("openai/gpt-image-2", 1920, 1080) == (2048, 1152)
+    assert resolve_supported_image_size("openai/gpt-image-2", 768, 432) == (768, 432)
+    assert resolve_supported_image_size("openai/gpt-image-2/edit", 1920, 1080) == (1920, 1080)
