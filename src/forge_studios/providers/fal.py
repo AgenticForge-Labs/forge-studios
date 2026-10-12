@@ -200,6 +200,11 @@ class FalProvider:
             if 'image_size' not in payload and self.profile.image.width and self.profile.image.height:
                 width,height=resolve_supported_image_size(model,self.profile.image.width,self.profile.image.height)
                 payload['image_size']={'width':width,'height':height}
+            if model == 'openai/gpt-image-2/edit':
+                # Use the already validated Fal comparison request shape.
+                # This is provider execution configuration, not authored prompt.
+                payload.setdefault('quality', 'high')
+                payload.setdefault('num_images', 1)
             if model.startswith('fal-ai/flux-2'):
                 payload.setdefault('safety_tolerance', os.getenv('FAL_IMAGE_SAFETY_TOLERANCE','5'))
                 payload.setdefault('enable_safety_checker', True)
