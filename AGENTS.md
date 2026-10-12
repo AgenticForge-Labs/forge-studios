@@ -117,6 +117,18 @@ generate, auto-approve, rewrite canon, or become the resume/approval source.
 See `docs/STORYBOARD_REVIEW_EXPORT.md` for the guarded foreground runner,
 one-shot paid smoke, and ZIP review workflow.
 
+## Experimental image-provider comparisons
+
+`scripts/run_image_model_comparison.sh` and `image_compare.py` compare
+the **identical, authored** shot prompt and ordered canonical references
+across Fal-hosted image-edit models. They use Platform AI Runtime through the
+existing isolated-dev runtime preflight. No separate OpenAI/Google keys, no
+system pip installation, no video generation, no auto-approval, and no writes
+back to the production EpisodePackage. One paid call per selected model
+requires `--confirm-paid`; an offline dry-run exports the intended request
+matrix and original references. Review outputs are non-authoritative ZIPs.
+See `docs/STORYBOARD_REVIEW_EXPORT.md` for usage and licensing/budget notes.
+
 ## Frame policy
 
 The current contract treats incoming continuity and outgoing frame constraints as
