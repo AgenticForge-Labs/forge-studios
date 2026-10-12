@@ -108,6 +108,15 @@ enforce hard API limits such as maximum reference count or prompt characters bef
 paid request, but must fail rather than truncate or rewrite the authored prompt.
 
 
+## Portable storyboard review
+
+`storyboard-export` is an offline, non-authoritative projection of the
+existing package plus frame candidates, canonical references, exact prompts,
+provider evidence, checksums and partial-failure diagnostics. It must never
+generate, auto-approve, rewrite canon, or become the resume/approval source.
+See `docs/STORYBOARD_REVIEW_EXPORT.md` for the guarded foreground runner,
+one-shot paid smoke, and ZIP review workflow.
+
 ## Frame policy
 
 The current contract treats incoming continuity and outgoing frame constraints as
