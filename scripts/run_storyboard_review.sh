@@ -85,7 +85,7 @@ elif [[ "$RUN" == full ]]; then
   echo "[storyboard] full ten-shot paid generation explicitly confirmed" | tee -a "$LOG"
   FORGE_STUDIOS_MODE=cheap forge-studios storyboard --package "$PACKAGE" \
     --out "$OUTPUT_DIR/${EPISODE}-storyboard-${TIMESTAMP}.html" --generate \
-    --provider fal --mode cheap --asset-manifest "$MANIFEST" \
+    --provider fal --asset-manifest "$MANIFEST" \
     --asset-root "$ASSET_ROOT" --telemetry "$TELEMETRY" \
     2>&1 | tee -a "$LOG"
   STATUS=${PIPESTATUS[0]}
