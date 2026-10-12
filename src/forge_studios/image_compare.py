@@ -13,12 +13,9 @@ import hashlib
 import html
 import json
 import re
-import shutil
 import sys
-import tempfile
 import time
 import zipfile
-from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlsplit
 from uuid import uuid4
@@ -111,7 +108,7 @@ def _media_download(url: str, *, client: httpx.Client | None = None) -> bytes:
             transport.close()
 
 
-def _selected_baseline(package, shot, reference_root: Path) -> tuple[bytes, dict] | None:
+def _selected_baseline(package, shot) -> tuple[bytes, dict] | None:
     for aid in reversed(shot.start_frame_asset_ids):
         try:
             record = package.find_asset(aid)
@@ -146,7 +143,7 @@ def _resolve_inputs(package_path: Path, manifest_path: Path, asset_root: Path, s
         references.append((aid, path, path.read_bytes()))
     if not references:
         raise ValueError("No canonical references for comparison")
-    baseline = _selected_baseline(package, shot, asset_root)
+    baseline = _selected_baseline(package, shot)
     return package, shot, references, baseline
 
 
@@ -160,7 +157,7 @@ def _one_generation(name: str, prompt: str, image_references: list[tuple[str, Pa
     try:
         uploaded = {}
         uris = []
-        for index, (aid, path, data) in enumerate(image_references):
+        for index, (aid, path, _data) in enumerate(image_references):
             # Existing shared upload primitive detects JPEG bytes within .png names.
             uri = runtime_asset(str(path), assets=uploaded, asset_id=f"ref_{index}")
             if not uri or not uri.startswith("asset://"):
@@ -242,7 +239,7 @@ def _review_html(rows: list[dict], reference_records: list[dict]) -> str:
 
 def compare(package_path: Path, manifest: Path, asset_root: Path, out: Path,
             *, shot_id: str = "awakening", models: list[str] | None = None,
-            confirm_paid: bool = False, executor=None, download=_media_download) -> dict:
+            confirm_paid: bool = False, download=_media_download) -> dict:
     selected = list(models or DEFAULT_MODELS)
     for model in selected:
         if model not in MODEL_SPECS:
