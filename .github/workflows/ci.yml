@@ -17,5 +17,5 @@ jobs:
       - run: python -m pip install -e '.[fal,timeline,dev]'
       # Scope lint to the new exporter and tests. The existing repository-wide
       # Ruff backlog is unrelated to this storyboard export PR.
-      - run: ruff check src/forge_studios/storyboard_export.py tests/current/test_storyboard_export.py
+      - run: ruff check src/forge_studios/storyboard_export.py src/forge_studios/media_types.py src/forge_studios/ai_runtime.py src/forge_studios/asset_resolution.py tests/current/test_storyboard_export.py
       - run: pytest -q
