@@ -180,7 +180,7 @@ def _one_generation(name: str, prompt: str, image_references: list[tuple[str, Pa
             raise ValueError("Fal returned no image object")
         image_url = images[0].get("url")
         if not isinstance(image_url, str):
-            raise ValueError("Fal returned no image URL")
+            raise TypeError("Fal returned no image URL")
         data = download(image_url)
         signature = sniff_image_bytes(data)
         if not signature:
@@ -198,7 +198,7 @@ def _one_generation(name: str, prompt: str, image_references: list[tuple[str, Pa
             "extension": signature[0],
         })
         return evidence, data
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - preserve partial results from individual providers
         evidence["error"] = _clean_message(f"{type(exc).__name__}: {exc}")
         return evidence, None
     finally:
@@ -215,9 +215,9 @@ def _write_zip(out: Path, files: dict[str, bytes]) -> None:
 
 def _review_html(rows: list[dict], reference_records: list[dict]) -> str:
     content = ['<!doctype html><meta charset="utf-8"><title>Shot image model comparison</title>',
-               '<style>body{font:16px system-ui;max-width:1280px;margin:2rem auto;padding:0 1rem}'
-               'section{border:1px solid #bbb;border-radius:12px;padding:1rem;margin:1rem 0}'
-               'img{max-width:100%;max-height:720px;object-fit:contain}</style>',
+               ('<style>body{font:16px system-ui;max-width:1280px;margin:2rem auto;padding:0 1rem}'
+                'section{border:1px solid #bbb;border-radius:12px;padding:1rem;margin:1rem 0}'
+                'img{max-width:100%;max-height:720px;object-fit:contain}</style>'),
                "<h1>Awakening image model comparison</h1>",
                "<p>Unapproved experimental images. No video generated; source EpisodePackage unchanged.</p>",
                '<p><a href="prompt.txt">Original authored start-frame prompt</a></p>']
