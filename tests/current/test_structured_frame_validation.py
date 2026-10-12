@@ -103,6 +103,36 @@ def test_transient_shot_pose_is_still_rejected():
     assert "BOUNDARY_FRAME_TRANSIENT_ACTION" in codes
 
 
+def test_structured_pose_rejects_transient_posture_but_keeps_settled_contact():
+    good = _structured_frame(
+        "EDIT\nA small red dragon is lying down and resting on a stone surface.",
+    )
+    good = good.replace(
+        '"shot_pose": "lying down on the central stone altar, forelegs tucked"',
+        '"shot_pose": {"posture": "lying down", '
+        '"support": "The belly and torso rest directly on stone.", '
+        '"configuration": ["Front legs folded under chest."], '
+        '"orientation": "Facing the visible pathway.", '
+        '"placement": "On the central stone altar."}',
+    )
+    assert validate_frame_plans(_package(good)) == []
+    bad = good.replace('"posture": "lying down"', '"posture": "mid-jump above the platform"')
+    assert "BOUNDARY_FRAME_TRANSIENT_ACTION" in {
+        x.code for x in validate_frame_plans(_package(bad))
+    }
+
+
+def test_structured_pose_rejects_invalid_configuration():
+    base = _structured_frame("EDIT\nA red dragon lies quietly on stone.")
+    prompt = base.replace(
+        '"shot_pose": "lying down on the central stone altar, forelegs tucked"',
+        '"shot_pose": {"posture": "lying down", "configuration": "not a list"}',
+    )
+    assert "BOUNDARY_FRAME_SPEC_INVALID" in {
+        x.code for x in validate_frame_plans(_package(prompt))
+    }
+
+
 def test_malformed_json_never_bypasses_static_frame_validation():
     prompt = _structured_frame("EDIT\nA settled red dragon.")
     malformed = prompt.replace('"media": "image"', '"media": broken')
