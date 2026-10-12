@@ -89,12 +89,8 @@ finding the validated package.
 
 **Lint note:** current upstream Forge Studios contains unrelated Ruff
 violations; a repository-wide `ruff check .` is not an integration gate for
-this export change. Run
-\`ruff check src/forge_studios/storyboard_export.py src/forge_studios/media_types.py \\
-  src/forge_studios/ai_runtime.py src/forge_studios/asset_resolution.py \\
-  src/forge_studios/runtime_preflight.py tests/current/test_storyboard_export.py \\
-  tests/current/test_runtime_preflight.py\`
-plus the full current test suite. CI enforces that focused lint gate.
+this export change. CI enforces focused lint on the touched export, transport,
+runtime-preflight and test modules, plus the full pytest suite.
 
 From your cloned workspace:
 
