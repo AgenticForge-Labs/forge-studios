@@ -65,6 +65,19 @@ elif [[ "$RUN" == full ]]; then
   STATUS=${PIPESTATUS[0]}
 fi
 
+# Record checked-out repository SHAs as execution context (not story authority).
+STUDIOS_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+BORN_DIR=$(dirname "$(dirname "$MANIFEST")")
+GIT_ARGS=()
+for name_dir in "forge-studios:$STUDIOS_DIR" "forge-born:$BORN_DIR" "forge-worlds:$STUDIOS_DIR/../forge-worlds"; do
+  NAME=${name_dir%%:*}
+  DIR=${name_dir#*:}
+  SHA=$(git -C "$DIR" rev-parse HEAD 2>/dev/null || true)
+  if [[ "$SHA" =~ ^[0-9a-f]{40}$ ]]; then
+    GIT_ARGS+=(--git-sha "$NAME=$SHA")
+  fi
+done
+
 # Always export completed frames, references, diagnostics, and a missing-frame ledger.
 forge-studios storyboard-export --package "$PACKAGE" --asset-manifest "$MANIFEST" \
   --asset-root "$ASSET_ROOT" --telemetry "$TELEMETRY" --log "$LOG" \
