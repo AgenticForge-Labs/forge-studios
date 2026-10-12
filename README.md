@@ -121,6 +121,18 @@ The export does not generate or approve media. See
 the one-frame smoke test, safeguarded foreground batch runner, and `~/Downloads`
 handoff.
 
+### Production storyboard GPT Image 2 refresh
+
+The `scripts/run_storyboard_review.sh` foreground runner now uses an
+explicit `openai/gpt-image-2/edit` Fal model override for Episode 1
+still-image generation. Its `full --confirm-paid` mode invokes the regular
+Studios Animator, refreshes any mismatched prior candidates, registers
+new per-shot assets/attempts in the **original EpisodePackage**, checkpoints
+after each successful image, and resumes without repeating matching local
+GPT results. There is no automatic approval, video generation, or rewrite of
+Forge Worlds' authored prompts. Provider/model defaults for other projects
+are unchanged. See `docs/STORYBOARD_REVIEW_EXPORT.md`.
+
 ### Fal-only model comparisons
 
 Before approving the first storyboard image, run
