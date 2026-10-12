@@ -100,6 +100,15 @@ reference-role prose, audio policy, or fallback creative instructions.
 
 A missing prompt is a package error and is returned upstream rather than repaired here.
 
+Static-frame validation is format-aware without becoming story interpretation:
+for a producer-authored JSON-plus-prose frame envelope, decode the structured
+shot specification, reject malformed JSON, and scan the renderable IMAGE PROMPT
+prose and shot staging for temporal action. The reference-authority preamble,
+JSON string quoting, forbidden-feature labels, and incidental reference roles
+must not be mistaken for actual rendered motion or speech. Compare start/end
+**image compositions**, not their common JSON policy. Prose-only frames keep
+the existing checks. Provider dispatch sends the complete authored text unchanged.
+
 
 ## Boundary frames
 
