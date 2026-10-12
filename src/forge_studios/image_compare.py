@@ -16,8 +16,8 @@ import re
 import sys
 import time
 import zipfile
-from pathlib import Path
 from datetime import datetime, timezone
+from pathlib import Path
 from urllib.parse import urlsplit
 from uuid import uuid4
 
