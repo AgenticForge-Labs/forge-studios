@@ -20,6 +20,19 @@ _SECRET_KEY = re.compile(r"(^|_)(token|secret|password|api_key|authorization|cre
 _SECRET_VALUE = re.compile(r"(?i)(bearer\s+\S+|sk-[a-z0-9_-]{16,})")
 
 
+def _content_type(data: bytes) -> tuple[str, str] | None:
+    """Use actual raster signatures, not misleading source filename suffixes."""
+    if data.startswith(b"\\x89PNG\\r\\n\\x1a\\n"):
+        return ".png", "image/png"
+    if data.startswith(b"\\xff\\xd8\\xff"):
+        return ".jpg", "image/jpeg"
+    if data.startswith((b"GIF87a", b"GIF89a")):
+        return ".gif", "image/gif"
+    if data.startswith(b"RIFF") and data[8:12] == b"WEBP":
+        return ".webp", "image/webp"
+    return None
+
+
 def _scrub(value):
     """Remove obvious credentials and signed/query URLs from exported evidence."""
     if isinstance(value, dict):
@@ -134,14 +147,16 @@ def export_storyboard_review(
             return None
         asset = review.find_asset(asset_id)
         path = _resolve_media(asset, source.parent, root, storage_keys)
-        suffix = path.suffix.lower() if path else ""
-        if path is None or suffix not in _IMAGE_TYPES:
+        data = path.read_bytes() if path is not None else b""
+        signature = _content_type(data)
+        if signature is None:
             unresolved.add(asset_id)
             missing.append({"asset_id": asset_id, "label": label, "reason": "local supported raster image unavailable"})
             asset.uri = f"asset://unbundled/{asset_id}"
             return None
-        data = path.read_bytes()
-        # Paths in ZIP never include user-controlled shot IDs or filesystem names.
+        suffix, _mime = signature
+        # Package filename is based on image bytes, not an unreliable source suffix.
+        # Do not rewrite the source canon asset or recompress it.
         inside = f"images/{len(image_locations)+1:03d}{suffix}"
         payloads[inside] = data
         image_locations[asset_id] = inside
@@ -176,6 +191,41 @@ def export_storyboard_review(
                       "reference_uses": shot.reference_uses,
                       "frames": frames, "video_prompt": shot.video_prompt})
 
+    # The canonical reference images are already present in the review ZIP.
+    # Make them inspectable *before* spending money on a generated frame.
+    canonical_cards = []
+    for asset in review.assets:
+        if asset.kind != "reference_image":
+            continue
+        location = image_locations.get(asset.asset_id)
+        if not location:
+            continue
+        used_in = [shot.shot_id for shot in review.shots
+                   if asset.asset_id in shot.reference_asset_ids]
+        canonical_cards.append(
+            '<article><h2>' + html.escape(asset.asset_id) + '</h2>'
+            + '<img src="' + html.escape(location, quote=True) + '" alt="'
+            + html.escape(asset.asset_id, quote=True) + '">'
+            + '<p>Status: ' + html.escape(asset.status) + ' · Authority: '
+            + html.escape(asset.authority) + '</p><p>Shots: '
+            + html.escape(", ".join(used_in)) + '</p></article>'
+        )
+    payloads["canonical-references.html"] = (
+        '<!doctype html><meta charset="utf-8">'
+        '<title>Canonical storyboard references</title>'
+        '<style>body{font:16px system-ui;max-width:1100px;'
+        'margin:2rem auto;padding:0 1rem;background:#f7f7f5}'
+        'article{background:white;border:1px solid #bbb;'
+        'border-radius:12px;padding:1rem;margin:1rem 0}'
+        'img{display:block;max-width:100%;max-height:640px;'
+        'object-fit:contain;margin:1rem auto}</style>'
+        '<h1>Existing canonical references</h1>'
+        '<p>Original source pixels. No storyboard frames were generated '
+        'by this offline export. References are not production candidates.</p>'
+        '<p><a href="storyboard.html">← Production storyboard</a></p>'
+        + "".join(canonical_cards)
+    ).encode("utf-8")
+
     # Package may retain unused media; don't publish workstation paths or signed URLs.
     for asset in review.assets:
         if asset.asset_id not in image_locations:
@@ -188,8 +238,11 @@ def export_storyboard_review(
     from tempfile import TemporaryDirectory
     with TemporaryDirectory() as temp:
         html_path = build_storyboard(review, Path(temp) / "storyboard.html")
-        payloads["storyboard.html"] = html_path.read_bytes()
-        payloads["storyboard.image-guide.html"] = html_path.with_name("storyboard.image-guide.html").read_bytes()
+        storyboard = html_path.read_text(encoding="utf-8")
+        guide = html_path.with_name("storyboard.image-guide.html").read_text(encoding="utf-8")
+        gallery_link = '<p><a href="canonical-references.html">View existing canonical references →</a></p>'
+        payloads["storyboard.html"] = (storyboard.replace("<h1>", gallery_link + "<h1>", 1)).encode("utf-8")
+        payloads["storyboard.image-guide.html"] = (guide.replace("<h1>", gallery_link + "<h1>", 1)).encode("utf-8")
 
     payloads["contact-sheet.svg"] = _sheet_svg(panels)
     png_available = False
@@ -275,6 +328,7 @@ def export_storyboard_review(
                     for a in review.assets if a.kind == "reference_image"
                 ],
                 "git_shas": git_shas or {}, "contact_sheet_png": png_available,
+                "reference_gallery": "canonical-references.html",
                 "generation_summary": generation_summary,
                 "files": {}}
     for name, data in payloads.items():
