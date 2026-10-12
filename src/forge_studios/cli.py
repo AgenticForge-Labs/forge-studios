@@ -146,6 +146,24 @@ def _export_storyboard(args):
 
 def _generate(args):
     p=load_package(args.package); assert_generation_preflight(p)
+    manifest, root = args.asset_manifest, args.asset_root
+    if not manifest or not root:
+        discovered_manifest, discovered_root = discover_asset_sources(args.package)
+        manifest = manifest or discovered_manifest
+        root = root or discovered_root
+    if manifest and root:
+        bound = bind_missing_references(p, manifest_path=manifest, asset_root=root)
+        if bound:
+            save_json(args.package, p)
+            print(f'bound {len(bound)} reference asset(s) to local canonical media')
+    shot = p.find_shot(args.shot_id)
+    for asset_id in shot.reference_asset_ids:
+        uri = p.find_asset(asset_id).uri
+        if uri.startswith('asset://') or (not uri.startswith(('https://', 'http://', 'data:')) and not Path(uri).is_file()):
+            raise ValueError(
+                f'Cannot generate {shot.shot_id!r}: reference {asset_id!r} has no readable local media '
+                f'({uri!r}). Supply --asset-manifest and --asset-root.'
+            )
     service=AnimatorService(_provider(args.provider,_media_output_dir(args,p),progress=print,client_timeout_seconds=args.provider_timeout,poll_interval_seconds=args.provider_poll_interval),TelemetrySink(args.telemetry))
     assets=_run_with_failure_checkpoint(args.package,p,lambda: service.generate(p,args.shot_id,role=args.role))
     save_json(args.package,p); print(json.dumps([a.model_dump(mode='json') for a in assets],indent=2))
@@ -242,7 +260,7 @@ def build_parser():
     review.add_argument('--git-sha',action='append',help='repository=full_commit_sha (repeatable)')
     review.add_argument('--open-dir',action='store_true',help='open ZIP directory in the desktop file browser')
     review.set_defaults(func=_export_storyboard)
-    g=sub.add_parser('generate'); g.add_argument('--package',required=True); g.add_argument('--shot-id',required=True); g.add_argument('--role',choices=['start_frame','end_frame','video'],default='start_frame'); g.add_argument('--provider',choices=['mock','fal'],default='mock'); g.add_argument('--output-dir'); g.add_argument('--asset-root'); g.add_argument('--telemetry',default='.agenticforge/telemetry.jsonl'); g.add_argument('--provider-timeout',type=float,default=None); g.add_argument('--provider-poll-interval',type=float,default=None); g.set_defaults(func=_generate)
+    g=sub.add_parser('generate'); g.add_argument('--package',required=True); g.add_argument('--shot-id',required=True); g.add_argument('--role',choices=['start_frame','end_frame','video'],default='start_frame'); g.add_argument('--provider',choices=['mock','fal'],default='mock'); g.add_argument('--output-dir'); g.add_argument('--asset-manifest'); g.add_argument('--asset-root'); g.add_argument('--telemetry',default='.agenticforge/telemetry.jsonl'); g.add_argument('--provider-timeout',type=float,default=None); g.add_argument('--provider-poll-interval',type=float,default=None); g.set_defaults(func=_generate)
     a=sub.add_parser('approve'); a.add_argument('--package',required=True); a.add_argument('--shot-id',required=True); a.add_argument('--kind',choices=['start_frame','end_frame','clip'],required=True); a.add_argument('--asset-id',required=True); a.add_argument('--telemetry',default='.agenticforge/telemetry.jsonl'); _review_args(a); a.set_defaults(func=_approve)
     rj=sub.add_parser('reject'); rj.add_argument('--package',required=True); rj.add_argument('--shot-id',required=True); rj.add_argument('--asset-id',required=True); rj.add_argument('--telemetry',default='.agenticforge/telemetry.jsonl'); _review_args(rj,rejection=True); rj.set_defaults(func=_reject)
     d=sub.add_parser('plan'); d.add_argument('--package',required=True); d.set_defaults(func=_plan)
