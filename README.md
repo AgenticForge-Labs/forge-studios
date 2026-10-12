@@ -110,6 +110,17 @@ draft review evidence, not accepted production. They may be kept locally while u
 and are not required for private R2 backup. Once a frame/clip is explicitly approved
 into the production package, it becomes accepted production media and is backup-required.
 
+## Portable storyboard ZIP review
+
+After generating frame candidates, use `forge-studios storyboard-export` to
+create a self-contained ZIP with the current package review projection, full
+resolution images, canonical references, offline HTML, labeled contact sheet,
+per-shot prompts, checksums, available provenance, and missing-image diagnostics.
+The export does not generate or approve media. See
+[`docs/STORYBOARD_REVIEW_EXPORT.md`](docs/STORYBOARD_REVIEW_EXPORT.md) for
+the one-frame smoke test, safeguarded foreground batch runner, and `~/Downloads`
+handoff.
+
 ## Reference semantics
 
 Forge Worlds resolves world/view IDs to stable reference assets before handoff.
