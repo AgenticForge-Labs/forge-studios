@@ -259,6 +259,8 @@ class FalProvider:
                 'prompt_chars':len(str(payload.get('prompt') or '')),
                 'image_target_size':{'width':self.profile.image.width,'height':self.profile.image.height} if self.profile.image.width and self.profile.image.height else None,
                 'image_size':payload.get('image_size'),
+                'quality':payload.get('quality','provider-default'),
+                'num_images':payload.get('num_images','provider-default'),
                 'safety_tolerance':payload.get('safety_tolerance','provider-default'),
                 'enable_safety_checker':payload.get('enable_safety_checker','provider-default'),
             })
