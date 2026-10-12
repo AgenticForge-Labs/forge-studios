@@ -7,7 +7,6 @@ import html
 import io
 import json
 import math
-import mimetypes
 import re
 from pathlib import Path
 from urllib.parse import urlsplit
