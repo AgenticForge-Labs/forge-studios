@@ -80,6 +80,16 @@ Animator owns synthetic-media acquisition and provider compilation.
 Forge Studios does not compose, rewrite, expand, summarize, or semantically augment
 shot prompts. The `EpisodePackage` is already the authored execution contract.
 
+**Structured frame boundary validation:** A producer may supply the new Forge Worlds
+`REFERENCE AND GENERATION INSTRUCTIONS` + `SHOT SPECIFICATION (JSON)` +
+`IMAGE PROMPT` envelope. Treat the reference preamble and JSON encoding as
+instructions/metadata, not spoken dialogue or physical camera motion. Validate the
+renderable IMAGE PROMPT prose and authored JSON shot-staging description for settled
+frame semantics, and reject malformed JSON or unmistakably transient structured poses.
+For prose-only packages keep the existing static checks. Compare start/end image prose,
+not their shared reference preamble or identical schema keys. Never strip the envelope
+from the provider request: send the complete package-authored text byte-for-byte.
+
 For every media role:
 
 - send `start_frame_prompt`, `end_frame_prompt`, or `video_prompt` exactly as supplied;
