@@ -80,20 +80,16 @@ Animator owns synthetic-media acquisition and provider compilation.
 Forge Studios does not compose, rewrite, expand, summarize, or semantically augment
 shot prompts. The `EpisodePackage` is already the authored execution contract.
 
-**Structured frame boundary validation:** A producer may supply the new Forge Worlds
+**Structured frame boundary validation:** A producer may supply Forge Worlds'
 `REFERENCE AND GENERATION INSTRUCTIONS` + `SHOT SPECIFICATION (JSON)` +
-`IMAGE PROMPT` envelope. Treat the reference preamble and JSON encoding as
-instructions/metadata, not spoken dialogue or physical camera motion. Validate the
-renderable IMAGE PROMPT prose and authored JSON shot-staging description for settled
-frame semantics, and reject malformed JSON or unmistakably transient structured poses.
-Structured `shot_pose` may be a plain string or the new generic object with
-`posture`, optional `support`, `configuration`, `orientation`, `placement`,
-and `relative_position`. Check those authored pose values for unmistakably
-transient poses such as mid-jump; do not scan the JSON's other reference policy
-metadata as temporal action. Reject malformed pose field types or configuration
-values. For prose-only packages keep the existing static checks. Compare start/end image prose,
-not their shared reference preamble or identical schema keys. Never strip the envelope
-from the provider request: send the complete package-authored text byte-for-byte.
+`IMAGE PROMPT` envelope. Studios validates the JSON envelope, media/frame
+role, authored-staging type, and optional `shot_pose` value types; prose-only
+packages remain supported. These are structural checks, not semantic language
+interpretation. Studios must **never** reject image prose, quoted text, pose
+descriptions or start/end prompt similarity based on motion/audio/dialogue
+keyword lists, regexes or fuzzy string matching. The Writer/Visualizer and
+paired semantic evaluators own those judgments, with human review of media.
+The complete package-authored provider prompt is sent unchanged.
 
 For every media role:
 
