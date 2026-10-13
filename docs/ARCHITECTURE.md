@@ -100,17 +100,16 @@ reference-role prose, audio policy, or fallback creative instructions.
 
 A missing prompt is a package error and is returned upstream rather than repaired here.
 
-Static-frame validation is format-aware without becoming story interpretation:
-for a producer-authored JSON-plus-prose frame envelope, decode the structured
-shot specification, reject malformed JSON, and scan the renderable IMAGE PROMPT
-prose and shot staging for temporal action. The reference-authority preamble,
-JSON string quoting, forbidden-feature labels, and incidental reference roles
-must not be mistaken for actual rendered motion or speech. Compare start/end
-**image compositions**, not their common JSON policy. Structured `shot_pose` may be a string or a generic nested object containing
-`posture` and optional contact/support, configuration, orientation, and
-placement. Validate those authored fields for clear temporal pose descriptions;
-reject invalid field types without assuming particular anatomy.
-Prose-only frames keep the existing checks. When a frame fails the nonvisual check, diagnostics identify the exact matching phrase and whether it came from image prose or structured shot staging, without changing or sanitizing any provider prompt. Provider dispatch sends the complete authored text unchanged.
+Frame validation is strictly structural. For a producer-authored JSON-plus-prose
+envelope, check the JSON object, media/frame role, staging field types and optional
+`shot_pose` string/object and nested configuration types. Continue to accept
+ordinary prose-only packages. Keep deterministic camera/frame-plan, reference,
+asset, endpoint and provider-capability checks. Do not classify free-form prose,
+quotes, pose or temporal meaning with hardcoded motion/audio/dialogue words, regex
+matchers, or start/end fuzzy string similarity: Forge Worlds owns authoring and
+paired semantic evaluation, with human review for actual images. Studios sends
+the **complete** authored prompt unchanged; it neither rewrites nor semantically
+gates it.
 
 
 ## Boundary frames
