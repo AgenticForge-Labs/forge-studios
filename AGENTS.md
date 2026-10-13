@@ -80,6 +80,17 @@ Animator owns synthetic-media acquisition and provider compilation.
 Forge Studios does not compose, rewrite, expand, summarize, or semantically augment
 shot prompts. The `EpisodePackage` is already the authored execution contract.
 
+**Structured frame boundary validation:** A producer may supply Forge Worlds'
+`REFERENCE AND GENERATION INSTRUCTIONS` + `SHOT SPECIFICATION (JSON)` +
+`IMAGE PROMPT` envelope. Studios validates the JSON envelope, media/frame
+role, authored-staging type, and optional `shot_pose` value types; prose-only
+packages remain supported. These are structural checks, not semantic language
+interpretation. Studios must **never** reject image prose, quoted text, pose
+descriptions or start/end prompt similarity based on motion/audio/dialogue
+keyword lists, regexes or fuzzy string matching. The Writer/Visualizer and
+paired semantic evaluators own those judgments, with human review of media.
+The complete package-authored provider prompt is sent unchanged.
+
 For every media role:
 
 - send `start_frame_prompt`, `end_frame_prompt`, or `video_prompt` exactly as supplied;
@@ -107,6 +118,42 @@ prompt exactly. Provider profiles may
 enforce hard API limits such as maximum reference count or prompt characters before a
 paid request, but must fail rather than truncate or rewrite the authored prompt.
 
+
+## Portable storyboard review
+
+`storyboard-export` is an offline, non-authoritative projection of the
+existing package plus frame candidates, canonical references, exact prompts,
+provider evidence, checksums and partial-failure diagnostics. It must never
+generate, auto-approve, rewrite canon, or become the resume/approval source.
+See `docs/STORYBOARD_REVIEW_EXPORT.md` for the guarded foreground runner,
+one-shot paid smoke, and ZIP review workflow.
+
+## Registered image-only storyboard refresh
+
+The Episode 1 foreground production runner selects `openai/gpt-image-2/edit`
+via the existing Fal-backed AI Runtime. Only the explicit
+`forge-studios storyboard --generate --provider fal --image-edit-model
+openai/gpt-image-2/edit --refresh-model-candidates` path refreshes existing
+non-approved frames by model while reusing already registered matching local
+candidates. Never delete earlier FLUX attempts, silently alter authored
+prompts or auto-approve the new results. It checkpoints each new candidate in
+the source package and retains it for human storyboard review. This is
+not video generation, and the development Runtime preflight and explicit
+`full --confirm-paid` budget gate are mandatory in the foreground runner.
+The normal-mode global default is now GPT Image 2 for both text-only and reference-conditioned generation; the explicit `cheap` mode remains FLUX Flash.
+See `docs/STORYBOARD_REVIEW_EXPORT.md` for operator commands.
+
+## Experimental image-provider comparisons
+
+`scripts/run_image_model_comparison.sh` and `image_compare.py` compare
+the **identical, authored** shot prompt and ordered canonical references
+across Fal-hosted image-edit models. They use Platform AI Runtime through the
+existing isolated-dev runtime preflight. No separate OpenAI/Google keys, no
+system pip installation, no video generation, no auto-approval, and no writes
+back to the production EpisodePackage. One paid call per selected model
+requires `--confirm-paid`; an offline dry-run exports the intended request
+matrix and original references. Review outputs are non-authoritative ZIPs.
+See `docs/STORYBOARD_REVIEW_EXPORT.md` for usage and licensing/budget notes.
 
 ## Frame policy
 
@@ -242,16 +289,31 @@ music generation, goes through AgenticForge AI Runtime by default.
   covers the operation.
 - Preserve resolved provider/model, request ID, raw provider result, and Studios
   production metadata in telemetry/provenance.
-- Default local endpoint is `AI_RUNTIME_URL=http://127.0.0.1:8090` with the matching
-  `AI_RUNTIME_TOKEN` supplied by Platform configuration.
+- General API Runtime callers may default to port 8090; **the Episode 1
+  paid storyboard runner may not**. Its normal-profile paid test uses the
+  isolated running `agenticforge-platform-dev` runtime (typically port
+  18090) with verified effective development token, obtained in memory only.
+  Never borrow the production runtime's token or edit live Platform secrets.
 
 ## Runtime notes
 
-Use `--mode cheap` for routine boundary generation unless the user explicitly chooses
-the expensive profile. Current cheap defaults are `fal-ai/flux-2/flash` for images and
-`fal-ai/ltx-2.3-22b/distilled` for video.
-
-The CLI flag is authoritative; do not assume an exported environment variable selected
-cheap mode. Confirm the run log before spending credits.
+Provider generation mode is read from `FORGE_STUDIOS_MODE` by `FalProvider`.
+The standalone `forge-studios generate` and `storyboard` subcommands do
+**not** accept a `--mode` flag. `FORGE_STUDIOS_MODE=normal` is the global
+default; it now selects `openai/gpt-image-2` for text-to-image and
+`openai/gpt-image-2/edit` for reference-conditioned generation through Fal.
+Both use `quality=high` and one output image. The normal target is 1920×1080;
+the text-only Fal endpoint requires multiples of 16, so its default request
+rounds up to 2048×1152 while the field-tested reference edit remains
+1920×1080. The
+explicit `cheap` mode still uses FLUX.2 Flash by design. Existing
+`FAL_IMAGE_GENERATE_MODEL` and `FAL_IMAGE_EDIT_MODEL` overrides remain
+independent and authoritative over profile defaults. Previous FLUX candidates
+remain as provenance. The full Episode 1 runner may keep the explicit GPT
+edit-model selection for a reproducible operator handoff. Video model
+configuration is unchanged.
+Before paid generation, `runtime_preflight` verifies the actual development
+Platform container and its credentials without emitting tokens or modifying
+services. Confirm model, image size, provider and cost in the attempt trace.
 
 Never commit credentials or local secret files.

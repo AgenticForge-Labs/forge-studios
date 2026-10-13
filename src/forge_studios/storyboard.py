@@ -60,11 +60,42 @@ def _candidate_pair_context(package: EpisodePackage, shot, start_id: str):
     return _Context()
 
 
+def _matches_requested_model(
+    package: EpisodePackage, shot, asset_id: str | None, *,
+    model: str, role: str, references: list[str],
+) -> bool:
+    """Reuse only a local candidate for the same model, prompt and ordered inputs.
+
+    This is an interruption/resume check, not an approval or semantic image
+    judgment. Never treat a missing local file as successful prior generation.
+    """
+    if not asset_id:
+        return False
+    try:
+        asset = package.find_asset(asset_id)
+    except KeyError:
+        return False
+    if asset.status != 'candidate' or asset.model != model or asset.kind != role:
+        return False
+    if not Path(asset.uri).is_file():
+        return False
+    generation = asset.metadata.get('generation')
+    if not isinstance(generation, dict):
+        return False
+    authored = shot.start_frame_prompt if role == 'start_frame' else shot.end_frame_prompt
+    return (
+        generation.get('prompt') == authored
+        and generation.get('reference_asset_ids') == references
+        and generation.get('role') == role
+    )
+
+
 def generate_boundary_candidates(
     package: EpisodePackage,
     animator,
     *,
     skip_existing: bool = True,
+    refresh_model: str | None = None,
     on_frame_complete=None,
     progress: Callable[[str], None] | None = None,
 ):
@@ -77,6 +108,20 @@ def generate_boundary_candidates(
     generated = []
     shots = package.shots
     total = len(shots)
+    if refresh_model:
+        # Fail for the entire batch before dispatching *any* paid request.
+        # Previously approved frames remain authoritative and must not be
+        # quietly superseded with unreviewed candidates.
+        protected = [
+            shot.shot_id for shot in shots
+            if shot.approved_start_frame_asset_id or shot.approved_end_frame_asset_id
+        ]
+        if protected:
+            raise ValueError(
+                'Model refresh refuses human-approved boundary frames: '
+                + ', '.join(protected)
+                + '. Review/unapprove those frames explicitly before refreshing.'
+            )
     for index, shot in enumerate(shots, 1):
         if shot.render_strategy != 'generated_video':
             raise ValueError(
@@ -103,7 +148,14 @@ def generate_boundary_candidates(
                 progress(f'[frames] {shot.shot_id}: reusing {previous.shot_id} end candidate as exact start')
         else:
             start_id = _latest_boundary_id(shot, 'start_frame')
-            if not (skip_existing and start_id):
+            reusable = bool(
+                skip_existing and start_id
+                and (not refresh_model or _matches_requested_model(
+                    package, shot, start_id, model=refresh_model,
+                    role='start_frame', references=list(shot.reference_asset_ids),
+                ))
+            )
+            if not reusable:
                 assets = animator.generate(package, shot.shot_id, role='start_frame')
                 generated.extend(assets)
                 start_id = assets[-1].asset_id
@@ -119,7 +171,17 @@ def generate_boundary_candidates(
 
         if shot.frame_plan.mode == 'start_and_end':
             end_id = _latest_boundary_id(shot, 'end_frame')
-            if not (skip_existing and end_id):
+            expected_references = list(shot.reference_asset_ids)
+            if start_id not in expected_references:
+                expected_references.append(start_id)
+            reusable_end = bool(
+                skip_existing and end_id
+                and (not refresh_model or _matches_requested_model(
+                    package, shot, end_id, model=refresh_model,
+                    role='end_frame', references=expected_references,
+                ))
+            )
+            if not reusable_end:
                 with _candidate_pair_context(package, shot, start_id):
                     assets = animator.generate(package, shot.shot_id, role='end_frame')
                 generated.extend(assets)

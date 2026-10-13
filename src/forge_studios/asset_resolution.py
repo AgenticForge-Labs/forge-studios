@@ -18,7 +18,7 @@ def discover_asset_sources(package_path: str | Path) -> tuple[Path | None, Path 
 
 
 def bind_missing_references(package: EpisodePackage, *, manifest_path: str | Path, asset_root: str | Path) -> list[AssetRecord]:
-    """Bind missing shot references from the stable manifest into the package."""
+    """Bind missing records and unresolved reference URIs from the stable manifest."""
     try:
         import yaml
     except ImportError as exc:
@@ -28,27 +28,44 @@ def bind_missing_references(package: EpisodePackage, *, manifest_path: str | Pat
         raise ValueError(f'asset manifest must have kind=asset_manifest: {manifest_path}')
     records = {str(item.get('asset_id')): item for item in raw.get('assets', []) if isinstance(item, dict) and item.get('asset_id')}
     referenced = {asset_id for shot in package.shots for asset_id in shot.reference_asset_ids}
-    existing = {asset.asset_id for asset in package.assets}
+    existing = {asset.asset_id: asset for asset in package.assets}
     bound: list[AssetRecord] = []
     root = Path(asset_root).expanduser().resolve()
-    for asset_id in sorted(referenced - existing):
+    for asset_id in sorted(referenced):
+        asset = existing.get(asset_id)
+        # Canonical records may already exist with an asset:// logical URI.
+        # Resolve their transport path using the same authoritative manifest
+        # rather than sending an unresolved URI into a paid provider request.
+        if asset is not None and asset.uri and Path(asset.uri).is_file():
+            continue
         record = records.get(asset_id)
         if record is None:
+            if asset is None:
+                continue  # Unresolved IDs are caught by continuity validation.
+            # Do not silently erase externally resolvable references when
+            # this manifest has no matching record.
             continue
         storage_key = record.get('storage_key')
         if not isinstance(storage_key, str):
-            raise ValueError(f'asset manifest record {asset_id!r} has no storage_key')
+            raise TypeError(f'asset manifest record {asset_id!r} has no storage_key')
         key = Path(storage_key)
         if key.is_absolute() or '..' in key.parts:
             raise ValueError(f'unsafe asset storage_key for {asset_id!r}: {storage_key!r}')
-        local_path = root / key
+        local_path = (root / key).resolve()
+        if not local_path.is_relative_to(root):
+            raise ValueError(f'asset {asset_id!r} storage key escapes the asset root: {storage_key!r}')
         if not local_path.is_file():
             raise FileNotFoundError(f'asset {asset_id!r} resolves to missing file: {local_path}')
+        if asset is not None:
+            asset.uri = str(local_path)
+            bound.append(asset)
+            continue
         values = dict(record)
         values['uri'] = str(local_path)
         values.setdefault('metadata', {})
         values['metadata'] = {**values['metadata'], 'manifest_path': str(Path(manifest_path).resolve()), 'storage_key': storage_key}
         asset = AssetRecord.model_validate(values)
         package.assets.append(asset)
+        existing[asset_id] = asset
         bound.append(asset)
     return bound

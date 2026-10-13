@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-import re
+import json
 from dataclasses import asdict, dataclass
-from difflib import SequenceMatcher
 from typing import Any
 
 from .contracts import EpisodePackage, Shot
@@ -94,45 +93,46 @@ def _site_by_shot(package: EpisodePackage) -> dict[str, str | None]:
     return {shot.shot_id: shot.site_id for shot in package.shots}
 
 
-_TRANSIENT_BOUNDARY_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
-    ("mid-motion", re.compile(
-        r"\bmid[- ]?(?:jump|leap|fall|descent|landing|turn|stride|step|run|walk|flight)\b",
-        re.IGNORECASE,
-    )),
-    ("while-moving", re.compile(
-        r"\bwhile\s+(?:jumping|leaping|falling|landing|descending|turning|walking|running|flying)\b",
-        re.IGNORECASE,
-    )),
-    ("during-motion", re.compile(
-        r"\bduring\s+(?:the\s+)?(?:jump|leap|fall|descent|landing|turn|walk|run|flight)\b",
-        re.IGNORECASE,
-    )),
-    ("motion-blur", re.compile(r"\bmotion[- ]blur(?:red)?\b", re.IGNORECASE)),
-)
-
-_NONVISUAL_BOUNDARY_PATTERN = re.compile(
-    r"\b(?:camera\s+(?:moves|glides|pans|pushes|follows|zooms)|rack\s+focus|"
-    r"ambient\s+(?:sound|audio)|sound\s+of|audible|voice|speaks?|says?|"
-    r"walks?|walking|jumps?|jumping|lands?|landing|turns?|turning)\b",
-    re.IGNORECASE,
-)
+_SHOTA_SPEC_HEADER = "\n\nSHOT SPECIFICATION (JSON)\n"
+_IMAGE_PROSE_HEADER = "\n\nIMAGE PROMPT\n"
 
 
-def transient_boundary_markers(prompt: str | None) -> list[str]:
-    if not isinstance(prompt, str) or not prompt.strip():
-        return []
-    return [name for name, pattern in _TRANSIENT_BOUNDARY_PATTERNS if pattern.search(prompt)]
+def _structured_boundary_parts(
+    prompt: str | None,
+) -> tuple[str | None, dict[str, Any] | None, str | None]:
+    """Separate provider instructions/JSON from static image prose without rewriting it.
 
-
-def _normalized_boundary_prompt(prompt: str | None) -> str:
+    An ordinary prose-only producer continues unchanged. A structured producer
+    must supply valid JSON and a complete IMAGE PROMPT; malformed/partial
+    envelopes are rejected rather than hiding their content from validation.
+    """
     if not isinstance(prompt, str):
-        return ""
-    return re.sub(r"[^a-z0-9]+", " ", prompt.casefold()).strip()
+        return None, None, None
+    if not prompt.startswith("REFERENCE AND GENERATION INSTRUCTIONS\n"):
+        return None, None, None
+    if _SHOTA_SPEC_HEADER not in prompt or _IMAGE_PROSE_HEADER not in prompt:
+        return None, None, "missing JSON shot specification or IMAGE PROMPT section"
+    raw_json_and_prose = prompt.split(_SHOTA_SPEC_HEADER, 1)[1]
+    raw_json, prose = raw_json_and_prose.split(_IMAGE_PROSE_HEADER, 1)
+    try:
+        parsed = json.loads(raw_json)
+    except (ValueError, TypeError) as exc:
+        return None, None, f"invalid shot specification JSON: {exc}"
+    if not isinstance(parsed, dict):
+        return None, None, "shot specification must be a JSON object"
+    if parsed.get("media") != "image":
+        return None, None, "image frame shot specification must have media=image"
+    if not prose.strip():
+        return None, None, "IMAGE PROMPT section is empty"
+    return prose, parsed, None
 
 
 def _boundary_core(prompt: str | None) -> str:
     if not isinstance(prompt, str):
         return ""
+    structured_prose, _spec, _error = _structured_boundary_parts(prompt)
+    if structured_prose is not None:
+        prompt = structured_prose
     for marker in (
         "\n\nCanonical visual anchors",
         "\n\nNON-NEGOTIABLE VISUAL RULES",
@@ -155,6 +155,24 @@ def _boundary_prompt_issues(shot: Shot, *, require_compositions: bool = False) -
     issues: list[FramePlanIssue] = []
     for field_name in fields:
         prompt = getattr(shot, field_name, None)
+        structured_prose, spec, structured_error = _structured_boundary_parts(prompt)
+        if structured_error:
+            issues.append(FramePlanIssue(
+                "BOUNDARY_FRAME_SPEC_INVALID",
+                f"Shot {shot.shot_id!r} {field_name} has an invalid structured image prompt: "
+                f"{structured_error}.",
+                shot.shot_id,
+            ))
+            continue
+        if spec is not None and spec.get("frame_role") != (
+            "start_frame" if field_name == "start_frame_prompt" else "end_frame"
+        ):
+            issues.append(FramePlanIssue(
+                "BOUNDARY_FRAME_SPEC_INVALID",
+                f"Shot {shot.shot_id!r} {field_name} structured frame_role does not match.",
+                shot.shot_id,
+            ))
+            continue
         core = _boundary_core(prompt)
         if not core:
             if require_compositions:
@@ -164,37 +182,67 @@ def _boundary_prompt_issues(shot: Shot, *, require_compositions: bool = False) -
                     shot.shot_id,
                 ))
             continue
-        markers = transient_boundary_markers(prompt)
-        if markers:
+        # Validate only the typed shot-specification contract. Whether prose
+        # depicts a settled moment is semantic authoring/review, not an
+        # execution-time lexical policy owned by Forge Studios.
+        if spec is None:
+            continue
+        staging = spec.get("shot_staging", {})
+        if not isinstance(staging, dict):
             issues.append(FramePlanIssue(
-                "BOUNDARY_FRAME_TRANSIENT_ACTION",
-                f"Shot {shot.shot_id!r} {field_name} describes transient motion ({', '.join(markers)}). "
-                "Put intermediate movement in video_prompt instead.",
+                "BOUNDARY_FRAME_SPEC_INVALID",
+                f"Shot {shot.shot_id!r} {field_name} shot_staging must be an object.",
                 shot.shot_id,
             ))
-        if _NONVISUAL_BOUNDARY_PATTERN.search(core) or re.search(r"[\"“”][^\"“”]+[\"“”]", core):
+            continue
+        if not isinstance(staging.get("authored_frame_description", ""), str):
             issues.append(FramePlanIssue(
-                "BOUNDARY_FRAME_NONVISUAL_OR_TEMPORAL",
-                f"Shot {shot.shot_id!r} {field_name} contains movement, dialogue, audio, or camera motion. "
-                "Frame prompts must describe one static visible composition.",
+                "BOUNDARY_FRAME_SPEC_INVALID",
+                f"Shot {shot.shot_id!r} {field_name} authored frame description must be text.",
                 shot.shot_id,
             ))
+            continue
+        subjects = spec.get("subjects", [])
+        if not isinstance(subjects, list):
+            issues.append(FramePlanIssue(
+                "BOUNDARY_FRAME_SPEC_INVALID",
+                f"Shot {shot.shot_id!r} {field_name} subjects must be an array.",
+                shot.shot_id,
+            ))
+            continue
+        for subject in subjects:
+            if not isinstance(subject, dict):
+                issues.append(FramePlanIssue(
+                    "BOUNDARY_FRAME_SPEC_INVALID",
+                    f"Shot {shot.shot_id!r} {field_name} subject must be an object.",
+                    shot.shot_id,
+                ))
+                continue
+            pose = subject.get("shot_pose")
+            if isinstance(pose, dict):
+                fields = ("posture", "support", "orientation", "placement", "relative_position")
+                values = [pose.get(key, "") for key in fields]
+                configuration = pose.get("configuration", [])
+                if not isinstance(configuration, list):
+                    issues.append(FramePlanIssue(
+                        "BOUNDARY_FRAME_SPEC_INVALID",
+                        f"Shot {shot.shot_id!r} {field_name} configuration must be an array.",
+                        shot.shot_id,
+                    ))
+                    continue
+                if any(not isinstance(value, str) for value in (*values, *configuration)):
+                    issues.append(FramePlanIssue(
+                        "BOUNDARY_FRAME_SPEC_INVALID",
+                        f"Shot {shot.shot_id!r} {field_name} pose fields must contain text.",
+                        shot.shot_id,
+                    ))
+            elif pose is not None and not isinstance(pose, str):
+                issues.append(FramePlanIssue(
+                    "BOUNDARY_FRAME_SPEC_INVALID",
+                    f"Shot {shot.shot_id!r} {field_name} pose must be a string or object.",
+                    shot.shot_id,
+                ))
 
-    if shot.frame_plan.mode == "start_and_end":
-        start = _normalized_boundary_prompt(_boundary_core(shot.start_frame_prompt))
-        end = _normalized_boundary_prompt(_boundary_core(shot.end_frame_prompt))
-        if start and end and start == end:
-            issues.append(FramePlanIssue(
-                "BOUNDARY_FRAME_PROMPTS_DUPLICATE",
-                f"Shot {shot.shot_id!r} uses the same composition for start and end frames.",
-                shot.shot_id,
-            ))
-        elif start and end and SequenceMatcher(None, start, end).ratio() > 0.88:
-            issues.append(FramePlanIssue(
-                "BOUNDARY_FRAME_PROMPTS_TOO_SIMILAR",
-                f"Shot {shot.shot_id!r} start and end prompts are too similar to justify an authored end frame.",
-                shot.shot_id,
-            ))
     return issues
 
 
