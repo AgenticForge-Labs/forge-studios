@@ -86,7 +86,12 @@ shot prompts. The `EpisodePackage` is already the authored execution contract.
 instructions/metadata, not spoken dialogue or physical camera motion. Validate the
 renderable IMAGE PROMPT prose and authored JSON shot-staging description for settled
 frame semantics, and reject malformed JSON or unmistakably transient structured poses.
-For prose-only packages keep the existing static checks. Compare start/end image prose,
+Structured `shot_pose` may be a plain string or the new generic object with
+`posture`, optional `support`, `configuration`, `orientation`, `placement`,
+and `relative_position`. Check those authored pose values for unmistakably
+transient poses such as mid-jump; do not scan the JSON's other reference policy
+metadata as temporal action. Reject malformed pose field types or configuration
+values. For prose-only packages keep the existing static checks. Compare start/end image prose,
 not their shared reference preamble or identical schema keys. Never strip the envelope
 from the provider request: send the complete package-authored text byte-for-byte.
 
