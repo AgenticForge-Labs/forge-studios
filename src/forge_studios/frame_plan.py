@@ -114,7 +114,12 @@ _TRANSIENT_BOUNDARY_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
 _NONVISUAL_BOUNDARY_PATTERN = re.compile(
     r"\b(?:camera\s+(?:moves|glides|pans|pushes|follows|zooms)|rack\s+focus|"
     r"ambient\s+(?:sound|audio)|sound\s+of|audible|voice|speaks?|says?|"
-    r"walks?|walking|jumps?|jumping|lands?|landing|turns?|turning)\b",
+    r"walks?|walking|jumps?|jumping|lands?|turns?|turning|"
+    # "landing" can be a static architectural surface (stair/upper landing).
+    # Reject the action sense, including progressive landing and landing onto
+    # a target, without disallowing an otherwise settled composition.
+    r"(?:is|are|was|were|starts?|begins?)\s+landing|"
+    r"landing\s+(?:on|onto|from|in))\b",
     re.IGNORECASE,
 )
 
