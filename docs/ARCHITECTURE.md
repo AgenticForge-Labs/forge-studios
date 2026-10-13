@@ -110,7 +110,7 @@ must not be mistaken for actual rendered motion or speech. Compare start/end
 `posture` and optional contact/support, configuration, orientation, and
 placement. Validate those authored fields for clear temporal pose descriptions;
 reject invalid field types without assuming particular anatomy.
-Prose-only frames keep the existing checks. Provider dispatch sends the complete authored text unchanged.
+Prose-only frames keep the existing checks. When a frame fails the nonvisual check, diagnostics identify the exact matching phrase and whether it came from image prose or structured shot staging, without changing or sanitizing any provider prompt. Provider dispatch sends the complete authored text unchanged.
 
 
 ## Boundary frames
