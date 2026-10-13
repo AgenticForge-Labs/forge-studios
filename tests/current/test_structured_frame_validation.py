@@ -79,6 +79,34 @@ def test_structured_frame_validates_without_interpreting_json_quotes_as_dialogue
     assert "SHOT SPECIFICATION" not in _boundary_core(prompt)
 
 
+def test_stationary_architectural_landing_is_not_motion():
+    prompt = _structured_frame(
+        "REFERENCES\n@image1: preserve the steps.\n\n"
+        "EDIT\nA person stands still on the broad upper stone landing, "
+        "one hand resting on the railing.\n\n"
+        "OUTPUT\nClean cinematic 16:9 frame.",
+        staging="The person is planted on the upper stair landing.",
+    )
+    assert validate_frame_plans(_package(prompt)) == []
+
+
+def test_character_actively_landing_remains_invalid():
+    prompt = _structured_frame(
+        "EDIT\nThe character is landing on the steps.",
+        staging="The character stands near the steps.",
+    )
+    assert "BOUNDARY_FRAME_NONVISUAL_OR_TEMPORAL" in {
+        issue.code for issue in validate_frame_plans(_package(prompt))
+    }
+    prompt = _structured_frame(
+        "EDIT\nThe character lands on the steps.",
+        staging="The character stands near the steps.",
+    )
+    assert "BOUNDARY_FRAME_NONVISUAL_OR_TEMPORAL" in {
+        issue.code for issue in validate_frame_plans(_package(prompt))
+    }
+
+
 def test_actual_motion_in_image_prose_is_still_rejected():
     prompt = _structured_frame("EDIT\nThe dragon walks toward the camera.")
     codes = {x.code for x in validate_frame_plans(_package(prompt))}
