@@ -68,24 +68,25 @@ def test_public_json_remains_current_contract(tmp_path):
     assert loaded.shots[0].frame_plan.mode == "start_and_end"
 
 
-def test_validation_keeps_boundary_checks_without_provider_word_policing():
+def test_validation_does_not_hard_gate_english_boundary_prompts():
     package = make_package()
     assert validate_frame_plans(package) == []
 
+    # Neither sentence semantics nor lexical similarity constitute a reliable
+    # deterministic execution contract. Semantic quality is reviewed upstream.
     package.shots[0].end_frame_prompt = package.shots[0].start_frame_prompt
-    assert any(issue.code == "BOUNDARY_FRAME_PROMPTS_DUPLICATE" for issue in validate_frame_plans(package))
+    assert validate_frame_plans(package) == []
 
-    package = make_package()
     package.shots[0].end_frame_prompt = "Ember is mid-jump above the altar."
-    assert any(issue.code == "BOUNDARY_FRAME_TRANSIENT_ACTION" for issue in validate_frame_plans(package))
+    assert validate_frame_plans(package) == []
 
-    package = make_package()
-    package.shots[0].end_frame_prompt = "The camera tracks Ember as he speaks over an audible hum."
-    assert any(issue.code == "BOUNDARY_FRAME_NONVISUAL_OR_TEMPORAL" for issue in validate_frame_plans(package))
+    package.shots[0].end_frame_prompt = (
+        "The camera tracks Ember as he speaks over an audible hum."
+    )
+    assert validate_frame_plans(package) == []
 
-    package = make_package()
     package.shots[0].video_prompt += " An intimate view holds on Ember."
-    assert not any(issue.code == "PROVIDER_SENSITIVE_PROMPT_WORDING" for issue in validate_frame_plans(package))
+    assert validate_frame_plans(package) == []
 
 
 def test_boundary_generation_reuses_exact_predecessor_candidate(tmp_path):
