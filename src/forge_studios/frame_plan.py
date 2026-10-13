@@ -119,6 +119,29 @@ _NONVISUAL_BOUNDARY_PATTERN = re.compile(
 )
 
 
+def _nonvisual_boundary_evidence(
+    sources: list[tuple[str, str]],
+) -> str | None:
+    """Explain the exact source/phrase without altering provider prompt content."""
+    quoted = re.compile(r'["“”][^"“”]+["“”]')
+    for location, content in sources:
+        matches = [
+            (match.start(), match)
+            for pattern in (_NONVISUAL_BOUNDARY_PATTERN, quoted)
+            if (match := pattern.search(content)) is not None
+        ]
+        if not matches:
+            continue
+        _, match = min(matches, key=lambda item: item[0])
+        excerpt = " ".join(
+            content[max(0, match.start() - 55):match.end() + 55].split()
+        )
+        if len(excerpt) > 130:
+            excerpt = excerpt[:127] + "..."
+        return f"{location} matches {match.group()!r} near {excerpt!r}"
+    return None
+
+
 def transient_boundary_markers(prompt: str | None) -> list[str]:
     if not isinstance(prompt, str) or not prompt.strip():
         return []
@@ -225,6 +248,7 @@ def _boundary_prompt_issues(shot: Shot, *, require_compositions: bool = False) -
         # treat explanatory reference policy, JSON punctuation or negative
         # identity metadata as scene motion.
         scan_text = core
+        scan_sources = [("image prompt prose", core)]
         if spec is not None:
             staging = spec.get("shot_staging", {})
             if not isinstance(staging, dict):
@@ -243,6 +267,7 @@ def _boundary_prompt_issues(shot: Shot, *, require_compositions: bool = False) -
                 ))
                 continue
             scan_text += "\n" + authored_staging
+            scan_sources.append(("JSON shot_staging", authored_staging))
             # The shot_pose is a settled physical configuration. Reject
             # unmistakably transient poses, but don't treat a walking *stance*
             # as action prose merely because that word appears in the pose.
@@ -297,10 +322,12 @@ def _boundary_prompt_issues(shot: Shot, *, require_compositions: bool = False) -
                 shot.shot_id,
             ))
         if _NONVISUAL_BOUNDARY_PATTERN.search(scan_text) or re.search(r"[\"“”][^\"“”]+[\"“”]", scan_text):
+            evidence = _nonvisual_boundary_evidence(scan_sources)
+            detail = f" Trigger: {evidence}." if evidence else ""
             issues.append(FramePlanIssue(
                 "BOUNDARY_FRAME_NONVISUAL_OR_TEMPORAL",
                 f"Shot {shot.shot_id!r} {field_name} contains movement, dialogue, audio, or camera motion. "
-                "Frame prompts must describe one static visible composition.",
+                f"{detail} Frame prompts must describe one static visible composition.",
                 shot.shot_id,
             ))
 
