@@ -106,8 +106,11 @@ shot specification, reject malformed JSON, and scan the renderable IMAGE PROMPT
 prose and shot staging for temporal action. The reference-authority preamble,
 JSON string quoting, forbidden-feature labels, and incidental reference roles
 must not be mistaken for actual rendered motion or speech. Compare start/end
-**image compositions**, not their common JSON policy. Prose-only frames keep
-the existing checks. Provider dispatch sends the complete authored text unchanged.
+**image compositions**, not their common JSON policy. Structured `shot_pose` may be a string or a generic nested object containing
+`posture` and optional contact/support, configuration, orientation, and
+placement. Validate those authored fields for clear temporal pose descriptions;
+reject invalid field types without assuming particular anatomy.
+Prose-only frames keep the existing checks. Provider dispatch sends the complete authored text unchanged.
 
 
 ## Boundary frames
