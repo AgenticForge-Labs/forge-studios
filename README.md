@@ -70,7 +70,10 @@ Forge Studios accepts both ordinary frame prose and the Forge Worlds structured
 `IMAGE PROMPT` envelope. Its frame validator checks the renderable image prose
 and shot-staging text for unwanted temporal action while treating JSON quotation
 marks and reference instructions as metadata. Malformed structured envelopes still
-fail closed. The **entire** original prompt—including JSON and prose—is sent to the
+fail closed, including invalid nested physical-pose types. Structured `shot_pose`
+supports the generic natural-language `posture`, `support`, `configuration`,
+`orientation`, `placement`, and `relative_position` values; temporal
+poses like mid-jump remain invalid for still-image boundaries. The **entire** original prompt—including JSON and prose—is sent to the
 image provider unchanged; no semantic rewriting occurs in Studios.
 
 
