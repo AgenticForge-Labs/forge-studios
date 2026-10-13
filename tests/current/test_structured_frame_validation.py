@@ -1,34 +1,30 @@
-"""Cross-repository regression: JSON-plus-prose frames remain statically checked."""
+"""Studios checks deterministic frame contracts, never semantics by vocabulary."""
 
 from __future__ import annotations
 
 import json
 
+import pytest
+
 from forge_studios.contracts import EpisodePackage, Shot
-from forge_studios.frame_plan import (
-    _boundary_core,
-    validate_frame_plans,
-)
+from forge_studios.frame_plan import _boundary_core, validate_frame_plans
 
 
 def _structured_frame(
     prose: str,
     *,
     role: str = "start_frame",
-    pose: str = "lying down on the central stone altar, forelegs tucked",
-    staging: str = "A small red dragon lies on the altar, belly touching stone.",
+    pose: str | dict | None = "lying down on a raised stone platform",
+    staging: str = "A person is still on the upper landing.",
 ) -> str:
     specification = {
         "media": "image",
         "frame_role": role,
         "subjects": [{
-            "description": "a small red four-legged dragon",
+            "description": "a character",
             "shot_pose": pose,
-            "identity_constraints": [
-                "Exactly two small wings, symmetrically attached to the upper back.",
-                "Two silver horns, four feet, and a silver collar.",
-            ],
-            "excluded_features": ["walking", "missing wings"],
+            "identity_constraints": ["Two arms and two legs."],
+            "excluded_features": ["motion blur"],
         }],
         "reference_roles": [
             {"image": "@image1", "instruction": "Identity only, not the reference pose."}
@@ -37,8 +33,7 @@ def _structured_frame(
     }
     return (
         "REFERENCE AND GENERATION INSTRUCTIONS\n"
-        "The current shot pose overrides the pose shown in reference images; "
-        "for video the first movement occurs only after this image.\n\n"
+        "The start image is before future movement. Treat quoted JSON as data.\n\n"
         "SHOT SPECIFICATION (JSON)\n"
         + json.dumps(specification, indent=2)
         + "\n\nIMAGE PROMPT\n"
@@ -62,153 +57,100 @@ def _package(start: str, end: str | None = None) -> EpisodePackage:
             site_id="place",
             start_frame_prompt=start,
             end_frame_prompt=end,
-            video_prompt="After holding a beat, the dragon stands up.",
+            video_prompt="After holding a beat, the character stands up.",
         )],
         assets=[],
     )
 
 
-def test_structured_frame_validates_without_interpreting_json_quotes_as_dialogue():
+def _codes(prompt: str, end: str | None = None) -> set[str]:
+    return {issue.code for issue in validate_frame_plans(_package(prompt, end))}
+
+
+def test_valid_structured_frame_preserves_authored_prose():
     prompt = _structured_frame(
-        "REFERENCES\n@image1: character identity; EDIT controls pose.\n\n"
-        "EDIT\nA small red dragon lies down on a stone altar, all paws tucked.\n\n"
-        "OUTPUT\nClean cinematic 16:9 frame.",
+        "REFERENCES\n@image1: character identity.\n\n"
+        "EDIT\nA character lies down on a stone platform, limbs folded.\n\n"
+        "OUTPUT\nSingle cinematic image."
     )
-    assert validate_frame_plans(_package(prompt)) == []
+    assert _codes(prompt) == set()
     assert _boundary_core(prompt).startswith("REFERENCES\n")
     assert "SHOT SPECIFICATION" not in _boundary_core(prompt)
 
 
-def test_stationary_architectural_landing_is_not_motion():
-    prompt = _structured_frame(
-        "REFERENCES\n@image1: preserve the steps.\n\n"
-        "EDIT\nA person stands still on the broad upper stone landing, "
-        "one hand resting on the railing.\n\n"
-        "OUTPUT\nClean cinematic 16:9 frame.",
-        staging="The person is planted on the upper stair landing.",
+@pytest.mark.parametrize("prose", [
+    "EDIT\nA person stands on the upper stone landing.",
+    "EDIT\nThe subject is landing onto a platform.",
+    "EDIT\nThe subject walks across the path while jumping.",
+    'EDIT\nA sign says "Welcome" and ambient sounds are suggested.',
+    "EDIT\nA character is mid-jump with motion blur.",
+    "EDIT\nThe camera pans as a traveler walks.",
+])
+def test_words_and_quoted_prose_never_block_provider_dispatch(prose: str):
+    # These examples can be semantically wrong for a static still. Studios is
+    # not equipped to determine that, and must not hard-fail by lexical match.
+    assert _codes(_structured_frame(prose)) == set()
+
+
+def test_action_like_words_in_json_pose_and_staging_are_not_execution_gates():
+    frame = _structured_frame(
+        "EDIT\nA character stands on the platform.",
+        staging="The character walks toward the camera.",
+        pose={
+            "posture": "mid-jump over the step",
+            "support": "landing on a stone surface",
+            "configuration": ["walking stance", "wing joints extended"],
+            "orientation": "turning toward a light",
+            "placement": "on the steps",
+        },
     )
-    assert validate_frame_plans(_package(prompt)) == []
+    assert _codes(frame) == set()
 
 
-def test_character_actively_landing_remains_invalid():
-    prompt = _structured_frame(
-        "EDIT\nThe character is landing on the steps.",
-        staging="The character stands near the steps.",
-    )
-    assert "BOUNDARY_FRAME_NONVISUAL_OR_TEMPORAL" in {
-        issue.code for issue in validate_frame_plans(_package(prompt))
-    }
-    prompt = _structured_frame(
-        "EDIT\nThe character lands on the steps.",
-        staging="The character stands near the steps.",
-    )
-    assert "BOUNDARY_FRAME_NONVISUAL_OR_TEMPORAL" in {
-        issue.code for issue in validate_frame_plans(_package(prompt))
-    }
-
-
-def test_actual_motion_in_image_prose_is_still_rejected():
-    prompt = _structured_frame("EDIT\nThe dragon walks toward the camera.")
-    codes = {x.code for x in validate_frame_plans(_package(prompt))}
-    assert "BOUNDARY_FRAME_NONVISUAL_OR_TEMPORAL" in codes
-
-
-def test_nonvisual_diagnostic_identifies_actual_rendered_phrase_and_source():
-    prompt = _structured_frame(
-        "EDIT\nA small red dragon walks down the path."
-    )
-    issues = validate_frame_plans(_package(prompt))
-    found = [issue for issue in issues if issue.code == "BOUNDARY_FRAME_NONVISUAL_OR_TEMPORAL"]
-    assert len(found) == 1
-    assert "image prompt prose" in found[0].message
-    assert "'walks'" in found[0].message
-    assert "dragon walks down the path" in found[0].message
-    # The reference policy mentions future movement and JSON contains quoted
-    # strings and a forbidden "walking" feature; neither is the reported cause.
-    assert "reference policy" not in found[0].message.lower()
-
-
-def test_nonvisual_diagnostic_identifies_json_staging_when_prose_is_static():
-    prompt = _structured_frame(
-        "EDIT\nA small red dragon stands on a stone landing.",
-        staging="The dragon walks across the landing.",
-    )
-    issues = validate_frame_plans(_package(prompt))
-    found = [issue for issue in issues if issue.code == "BOUNDARY_FRAME_NONVISUAL_OR_TEMPORAL"]
-    assert len(found) == 1
-    assert "JSON shot_staging" in found[0].message
-    assert "'walks'" in found[0].message
-
-
-def test_transient_action_in_json_staging_is_still_rejected():
-    prompt = _structured_frame(
-        "EDIT\nA small red dragon holds a settled stance on a stone altar.",
-        staging="A small red dragon is mid-jump over the altar.",
-    )
-    codes = {x.code for x in validate_frame_plans(_package(prompt))}
-    assert "BOUNDARY_FRAME_TRANSIENT_ACTION" in codes
-
-
-def test_transient_shot_pose_is_still_rejected():
-    prompt = _structured_frame(
-        "EDIT\nA small red dragon holds a settled stance on a stone altar.",
-        pose="mid-jump from the raised altar",
-    )
-    codes = {x.code for x in validate_frame_plans(_package(prompt))}
-    assert "BOUNDARY_FRAME_TRANSIENT_ACTION" in codes
-
-
-def test_structured_pose_rejects_transient_posture_but_keeps_settled_contact():
-    good = _structured_frame(
-        "EDIT\nA small red dragon is lying down and resting on a stone surface.",
-    )
-    good = good.replace(
-        '"shot_pose": "lying down on the central stone altar, forelegs tucked"',
-        '"shot_pose": {"posture": "lying down", '
-        '"support": "The belly and torso rest directly on stone.", '
-        '"configuration": ["Front legs folded under chest."], '
-        '"orientation": "Facing the visible pathway.", '
-        '"placement": "On the central stone altar."}',
-    )
-    assert validate_frame_plans(_package(good)) == []
-    bad = good.replace('"posture": "lying down"', '"posture": "mid-jump above the platform"')
-    assert "BOUNDARY_FRAME_TRANSIENT_ACTION" in {
-        x.code for x in validate_frame_plans(_package(bad))
-    }
-
-
-def test_structured_pose_rejects_invalid_configuration():
-    base = _structured_frame("EDIT\nA red dragon lies quietly on stone.")
-    prompt = base.replace(
-        '"shot_pose": "lying down on the central stone altar, forelegs tucked"',
-        '"shot_pose": {"posture": "lying down", "configuration": "not a list"}',
-    )
-    assert "BOUNDARY_FRAME_SPEC_INVALID" in {
-        x.code for x in validate_frame_plans(_package(prompt))
-    }
-
-
-def test_malformed_json_never_bypasses_static_frame_validation():
-    prompt = _structured_frame("EDIT\nA settled red dragon.")
-    malformed = prompt.replace('"media": "image"', '"media": broken')
-    codes = {x.code for x in validate_frame_plans(_package(malformed))}
-    assert "BOUNDARY_FRAME_SPEC_INVALID" in codes
-    missing_prose = prompt.split("\n\nIMAGE PROMPT\n", 1)[0]
-    codes = {x.code for x in validate_frame_plans(_package(missing_prose))}
-    assert "BOUNDARY_FRAME_SPEC_INVALID" in codes
-
-
-def test_similarity_comparison_uses_frame_compositions_not_shared_json_policy():
-    start = _structured_frame("EDIT\nSmall dragon lies resting on stone altar.")
+def test_similar_or_identical_prose_is_not_a_hard_heuristic():
+    start = _structured_frame("EDIT\nA character stands beside a doorway.")
     end = _structured_frame(
-        "END EDIT\nSmall dragon stands beside a distant woodland path.",
-        role="end_frame",
-        staging="Small dragon stands beside a distant woodland path.",
+        "EDIT\nA character stands beside a doorway.", role="end_frame"
     )
-    assert validate_frame_plans(_package(start, end)) == []
-    identical = _structured_frame(
-        "EDIT\nSmall dragon lies resting on stone altar.",
-        role="end_frame",
+    assert _codes(start, end) == set()
+    # Semantic review can identify a redundant end frame. The continuity
+    # contract, not string similarity, controls whether an end is required.
+    similar = _structured_frame(
+        "EDIT\nA character stands beside the doorway.", role="end_frame"
     )
-    codes = {x.code for x in validate_frame_plans(_package(start, identical))}
-    assert "BOUNDARY_FRAME_PROMPTS_DUPLICATE" in codes
+    assert _codes(start, similar) == set()
+
+
+@pytest.mark.parametrize("modify", [
+    lambda p: p.replace('"media": "image"', '"media": broken'),
+    lambda p: p.split("\n\nIMAGE PROMPT\n", 1)[0],
+    lambda p: p.replace('"media": "image"', '"media": "video"'),
+    lambda p: p.replace('"frame_role": "start_frame"', '"frame_role": "end_frame"'),
+    lambda p: p.replace('"shot_staging": {', '"shot_staging": ['),
+])
+def test_invalid_envelopes_still_fail_closed(modify):
+    prompt = modify(_structured_frame("EDIT\nA character is still."))
+    assert "BOUNDARY_FRAME_SPEC_INVALID" in _codes(prompt)
+
+
+@pytest.mark.parametrize("pose", [
+    {"posture": "standing", "configuration": "not a list"},
+    {"posture": 4, "configuration": []},
+    {"posture": "standing", "configuration": ["valid", 5]},
+    ["standing", "still"],
+])
+def test_malformed_pose_structure_is_still_rejected(pose):
+    assert "BOUNDARY_FRAME_SPEC_INVALID" in _codes(
+        _structured_frame("EDIT\nStill character.", pose=pose)
+    )
+
+
+def test_invalid_subjects_type_is_still_rejected():
+    prompt = _structured_frame("EDIT\nA static frame.")
+    prompt = prompt.replace('"subjects": [', '"subjects": "not an array", "ignore": [')
+    assert "BOUNDARY_FRAME_SPEC_INVALID" in _codes(prompt)
+
+
+def test_prose_only_packages_still_supported():
+    assert _codes("Static character beside a doorway.") == set()
+    assert _codes("The character lands and speaks.") == set()
