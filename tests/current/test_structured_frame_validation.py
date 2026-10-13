@@ -85,6 +85,33 @@ def test_actual_motion_in_image_prose_is_still_rejected():
     assert "BOUNDARY_FRAME_NONVISUAL_OR_TEMPORAL" in codes
 
 
+def test_nonvisual_diagnostic_identifies_actual_rendered_phrase_and_source():
+    prompt = _structured_frame(
+        "EDIT\nA small red dragon walks down the path."
+    )
+    issues = validate_frame_plans(_package(prompt))
+    found = [issue for issue in issues if issue.code == "BOUNDARY_FRAME_NONVISUAL_OR_TEMPORAL"]
+    assert len(found) == 1
+    assert "image prompt prose" in found[0].message
+    assert "'walks'" in found[0].message
+    assert "dragon walks down the path" in found[0].message
+    # The reference policy mentions future movement and JSON contains quoted
+    # strings and a forbidden "walking" feature; neither is the reported cause.
+    assert "reference policy" not in found[0].message.lower()
+
+
+def test_nonvisual_diagnostic_identifies_json_staging_when_prose_is_static():
+    prompt = _structured_frame(
+        "EDIT\nA small red dragon stands on a stone landing.",
+        staging="The dragon walks across the landing.",
+    )
+    issues = validate_frame_plans(_package(prompt))
+    found = [issue for issue in issues if issue.code == "BOUNDARY_FRAME_NONVISUAL_OR_TEMPORAL"]
+    assert len(found) == 1
+    assert "JSON shot_staging" in found[0].message
+    assert "'walks'" in found[0].message
+
+
 def test_transient_action_in_json_staging_is_still_rejected():
     prompt = _structured_frame(
         "EDIT\nA small red dragon holds a settled stance on a stone altar.",
