@@ -1,5 +1,35 @@
 # Forge Studios
 
+## Current production priorities and company boundary (2026-11-04)
+
+Forge Studios is the **deterministic media-production executor** for the
+current shots-only `EpisodePackage` compiled by Forge Worlds. Director,
+Animator and Filmmaker work on approved creative intent; they do not
+invent story canon, run the company Executive or act as a general agent
+scheduler. Existing provider-transport/evidence integrations with Platform
+do not move semantic ownership to Platform.
+
+The nearest independently testable milestone is a complete, reviewed Forge
+Born episode/storyboard sequence with source-linked assets, candidate
+history, exact approvals, trace/cost evidence, reproducible export and
+explicit release. [Studios PR #31](https://github.com/AgenticForge-Labs/forge-studios/pull/31)
+contains a large storyboard review/export/paid-smoke branch: validate there
+with real approved assets and guarded paid-generation settings before
+merging. Older shots-only PR #29 was intentionally closed because current
+`main` already carries the newer package contract. No historical
+`scenes[]` or `beats[]` authority is to be restored.
+
+Company ContextForge/Business Engine, Shopify and social campaign execution
+remain **Platform/Business Engine** work. Creative may receive a reviewed
+campaign brief, but neither publication nor paid advertising is implicitly
+authorized by generating media. Physical shoots use Puppeteer's semantic
+performance boundary and device SDK safety rules.
+
+See [organization activation roadmap](https://github.com/AgenticForge-Labs/agenticforge-platform/blob/main/docs/company-activation-roadmap-2026-11.md)
+and [authority model](https://github.com/AgenticForge-Labs/agenticforge-platform/blob/main/docs/company-control-and-delegation.md).
+This is a documentation reconciliation, not acceptance of any live provider,
+released episode or physical stage.
+
 Forge Studios is the deterministic media-execution runtime for AgenticForge. It consumes
 one current, unversioned `EpisodePackage` from Forge Worlds (or an equivalent
 hand-authored producer) and executes its ordered generated-video shots without rewriting
