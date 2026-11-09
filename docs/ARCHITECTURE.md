@@ -54,6 +54,30 @@ intent. AgenticForge AI Runtime owns provider credentials and authenticated netw
 transport. For fal.ai, Studios compiles the exact request, supplies explicit local assets,
 and Runtime performs upload/provider execution without changing prompt semantics.
 
+## Image model routing and global defaults
+
+Studios has two deterministic Fal image execution routes under its shared
+`FalProvider`; both produce new registered candidate images when called by
+Animator. With the default `FORGE_STUDIOS_MODE=normal`:
+
+- **Text-only image requests** use `openai/gpt-image-2` (Fal text-to-image).
+- **Reference-conditioned requests** use `openai/gpt-image-2/edit`
+  with the authored ordered canonical images. The endpoint name describes
+  Fal's input contract, not whether the output is a newly generated frame.
+- Both request `quality=high`, `num_images=1`. Normal mode targets
+  1920×1080; Fal text generation requires both edges divisible by 16, so
+  that provider request rounds to 2048×1152. The reference-conditioned
+  endpoint retains the validated 1920×1080 request. Actual returned
+  dimensions remain provider evidence.
+- `FORGE_STUDIOS_MODE=cheap` intentionally retains FLUX Flash for
+  low-cost experimentation. Provider/model overrides take precedence.
+- Existing video generation, media attribution and approval policies
+  are unchanged; Platform AI Runtime still handles credentials and upload.
+
+This is a selected quality default subject to future evaluation, not a
+claim that any model is universally superior. Show-specific semantic intent
+continues to come from Forge Worlds/authoritative EpisodePackages.
+
 ## Prompt execution
 
 Forge Worlds (or another package author) supplies complete provider-facing shot prompts
@@ -75,6 +99,17 @@ provenance. It does not include adding camera prose, site geometry, visual const
 reference-role prose, audio policy, or fallback creative instructions.
 
 A missing prompt is a package error and is returned upstream rather than repaired here.
+
+Frame validation is strictly structural. For a producer-authored JSON-plus-prose
+envelope, check the JSON object, media/frame role, staging field types and optional
+`shot_pose` string/object and nested configuration types. Continue to accept
+ordinary prose-only packages. Keep deterministic camera/frame-plan, reference,
+asset, endpoint and provider-capability checks. Do not classify free-form prose,
+quotes, pose or temporal meaning with hardcoded motion/audio/dialogue words, regex
+matchers, or start/end fuzzy string similarity: Forge Worlds owns authoring and
+paired semantic evaluation, with human review for actual images. Studios sends
+the **complete** authored prompt unchanged; it neither rewrites nor semantically
+gates it.
 
 
 ## Boundary frames

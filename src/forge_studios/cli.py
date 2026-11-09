@@ -14,15 +14,16 @@ from .package_ops import add_reference,approve_asset,bind_inherited_start_frame,
 from .providers import FalProvider,MockProvider
 from .local_config import LocalSecretStore
 from .storyboard import build_storyboard,generate_boundary_candidates
+from .storyboard_export import export_storyboard_review
 from .telemetry import TelemetrySink
 from .timeline import save_timeline
 from .timeline_adapter import timeline_from_episode_package
 from .shorts import render_short,write_short_edit_plan
 from .storage import backup_media,publish_release
 
-def _provider(name,output_dir,*,progress=None,client_timeout_seconds=None,poll_interval_seconds=None):
+def _provider(name,output_dir,*,progress=None,client_timeout_seconds=None,poll_interval_seconds=None,image_edit_model=None):
     if name=='mock': return MockProvider(output_dir)
-    if name=='fal': return FalProvider(output_dir=output_dir,progress=progress,client_timeout_seconds=client_timeout_seconds,poll_interval_seconds=poll_interval_seconds)
+    if name=='fal': return FalProvider(output_dir=output_dir,progress=progress,client_timeout_seconds=client_timeout_seconds,poll_interval_seconds=poll_interval_seconds,image_edit_model=image_edit_model)
     raise ValueError(name)
 
 def _media_output_dir(args,p):
@@ -72,6 +73,22 @@ def _package(args):
 def _storyboard(args):
     p=load_package(args.package)
     if args.generate: assert_generation_preflight(p)
+    if args.refresh_model_candidates:
+        if not args.generate or args.provider != 'fal' or not args.image_edit_model:
+            raise ValueError('--refresh-model-candidates requires --generate --provider fal and --image-edit-model')
+        if args.auto_approve:
+            raise ValueError('--refresh-model-candidates cannot auto-approve new images')
+        without_refs = [
+            shot.shot_id for shot in p.shots
+            if not shot.frame_plan.chain_from_shot_id and not shot.reference_asset_ids
+        ]
+        if without_refs:
+            raise ValueError(
+                'Selected image edit model requires canonical references for all '
+                'non-inherited shots: ' + ', '.join(without_refs)
+            )
+    if args.image_edit_model and args.provider != 'fal':
+        raise ValueError('--image-edit-model requires --provider fal')
     sink=TelemetrySink(args.telemetry)
     manifest=args.asset_manifest; asset_root=args.asset_root
     if args.generate and not manifest and not asset_root:
@@ -82,11 +99,12 @@ def _storyboard(args):
             save_json(args.package,p)
             print(f'bound {len(bound)} missing reference asset(s)')
     if args.generate:
-        animator=AnimatorService(_provider(args.provider,_media_output_dir(args,p),progress=print,client_timeout_seconds=args.provider_timeout,poll_interval_seconds=args.provider_poll_interval),sink)
+        animator=AnimatorService(_provider(args.provider,_media_output_dir(args,p),progress=print,client_timeout_seconds=args.provider_timeout,poll_interval_seconds=args.provider_poll_interval,image_edit_model=args.image_edit_model),sink)
         generated=_run_with_failure_checkpoint(
             args.package,p,
             lambda: generate_boundary_candidates(
                 p,animator,
+                refresh_model=animator.provider.image_edit_model if args.refresh_model_candidates else None,
                 on_frame_complete=lambda package,shot,role,assets: save_json(args.package,package),
                 progress=print,
             ),
@@ -109,8 +127,60 @@ def _storyboard(args):
     print(out)
     if args.open and not webbrowser.open(out.resolve().as_uri()):
         print(f'could not request a browser open; open {out} manually')
+def _export_storyboard(args):
+    import subprocess
+    p = load_package(args.package)
+    refs = {}
+    for item in args.git_sha or []:
+        if '=' not in item:
+            raise ValueError('--git-sha must be repository=commit_sha')
+        name, sha = item.split('=', 1)
+        if not name or not sha or not all(c in '0123456789abcdef' for c in sha.lower()) or len(sha) != 40:
+            raise ValueError('--git-sha must contain a repository label and full 40-character hex SHA')
+        refs[name] = sha
+    if args.out:
+        out = Path(args.out).expanduser()
+    else:
+        safe_id = ''.join(c if c.isalnum() or c in '-_' else '-' for c in p.episode_id)
+        out = Path.home() / 'Downloads' / f'{safe_id}-storyboard-review.zip'
+    root = args.asset_root
+    manifest = args.asset_manifest
+    if not root or not manifest:
+        found_manifest, found_root = discover_asset_sources(args.package)
+        root = root or found_root
+        manifest = manifest or found_manifest
+    result = export_storyboard_review(
+        p, package_path=args.package, output_path=out,
+        asset_root=root, asset_manifest=manifest, telemetry_path=args.telemetry, log_path=args.log, git_shas=refs,
+    )
+    print(json.dumps(result, indent=2))
+    if args.open_dir:
+        try:
+            subprocess.Popen(['xdg-open', str(out.parent.resolve())],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except OSError:
+            print(f'Open output directory manually: {out.parent}')
+
 def _generate(args):
     p=load_package(args.package); assert_generation_preflight(p)
+    manifest, root = args.asset_manifest, args.asset_root
+    if not manifest or not root:
+        discovered_manifest, discovered_root = discover_asset_sources(args.package)
+        manifest = manifest or discovered_manifest
+        root = root or discovered_root
+    if manifest and root:
+        bound = bind_missing_references(p, manifest_path=manifest, asset_root=root)
+        if bound:
+            save_json(args.package, p)
+            print(f'bound {len(bound)} reference asset(s) to local canonical media')
+    shot = p.find_shot(args.shot_id)
+    for asset_id in shot.reference_asset_ids:
+        uri = p.find_asset(asset_id).uri
+        if uri.startswith('asset://') or (not uri.startswith(('https://', 'http://', 'data:')) and not Path(uri).is_file()):
+            raise ValueError(
+                f'Cannot generate {shot.shot_id!r}: reference {asset_id!r} has no readable local media '
+                f'({uri!r}). Supply --asset-manifest and --asset-root.'
+            )
     service=AnimatorService(_provider(args.provider,_media_output_dir(args,p),progress=print,client_timeout_seconds=args.provider_timeout,poll_interval_seconds=args.provider_poll_interval),TelemetrySink(args.telemetry))
     assets=_run_with_failure_checkpoint(args.package,p,lambda: service.generate(p,args.shot_id,role=args.role))
     save_json(args.package,p); print(json.dumps([a.model_dump(mode='json') for a in assets],indent=2))
@@ -196,8 +266,18 @@ def build_parser():
     p=argparse.ArgumentParser(prog='forge-studios'); sub=p.add_subparsers(dest='cmd',required=True)
     k=sub.add_parser('keys'); ks=k.add_subparsers(dest='action',required=True); st=ks.add_parser('set'); st.add_argument('name'); st.add_argument('value',nargs='?'); ks.add_parser('list'); k.set_defaults(func=_keys)
     v=sub.add_parser('validate'); v.add_argument('path'); v.set_defaults(func=_package)
-    sb=sub.add_parser('storyboard'); sb.add_argument('--package',required=True); sb.add_argument('--out',required=True); sb.add_argument('--generate',action='store_true',help='generate missing start/end boundary-frame candidate pairs before assembling HTML'); sb.add_argument('--auto-approve',action='store_true',help='approve generated boundary frames after the pair is created (off by default for human review)'); sb.add_argument('--asset-manifest',help='asset manifest used to bind missing canonical/reusable references'); sb.add_argument('--asset-root',help='root directory for manifest storage keys'); sb.add_argument('--provider',choices=['mock','fal'],default='mock'); sb.add_argument('--output-dir'); sb.add_argument('--telemetry',default='.agenticforge/telemetry.jsonl'); sb.add_argument('--provider-timeout',type=float,default=None,help='maximum seconds to wait for one provider request (default: 300 or FAL_CLIENT_TIMEOUT_SECONDS)'); sb.add_argument('--provider-poll-interval',type=float,default=None,help='seconds between provider status updates (default: 5 or FAL_POLL_INTERVAL_SECONDS)'); sb.add_argument('--open',action='store_true',help='open the generated boundary-frame storyboard HTML in the system browser'); sb.set_defaults(func=_storyboard)
-    g=sub.add_parser('generate'); g.add_argument('--package',required=True); g.add_argument('--shot-id',required=True); g.add_argument('--role',choices=['start_frame','end_frame','video'],default='start_frame'); g.add_argument('--provider',choices=['mock','fal'],default='mock'); g.add_argument('--output-dir'); g.add_argument('--asset-root'); g.add_argument('--telemetry',default='.agenticforge/telemetry.jsonl'); g.add_argument('--provider-timeout',type=float,default=None); g.add_argument('--provider-poll-interval',type=float,default=None); g.set_defaults(func=_generate)
+    sb=sub.add_parser('storyboard'); sb.add_argument('--package',required=True); sb.add_argument('--out',required=True); sb.add_argument('--generate',action='store_true',help='generate missing start/end boundary-frame candidate pairs before assembling HTML'); sb.add_argument('--auto-approve',action='store_true',help='approve generated boundary frames after the pair is created (off by default for human review)'); sb.add_argument('--asset-manifest',help='asset manifest used to bind missing canonical/reusable references'); sb.add_argument('--asset-root',help='root directory for manifest storage keys'); sb.add_argument('--provider',choices=['mock','fal'],default='mock'); sb.add_argument('--image-edit-model',help='explicit Fal image editing model, without changing other profiles'); sb.add_argument('--refresh-model-candidates',action='store_true',help='regenerate existing mismatched-model boundary candidates; resume by reusing matching local candidates'); sb.add_argument('--output-dir'); sb.add_argument('--telemetry',default='.agenticforge/telemetry.jsonl'); sb.add_argument('--provider-timeout',type=float,default=None,help='maximum seconds to wait for one provider request (default: 300 or FAL_CLIENT_TIMEOUT_SECONDS)'); sb.add_argument('--provider-poll-interval',type=float,default=None,help='seconds between provider status updates (default: 5 or FAL_POLL_INTERVAL_SECONDS)'); sb.add_argument('--open',action='store_true',help='open the generated boundary-frame storyboard HTML in the system browser'); sb.set_defaults(func=_storyboard)
+    review=sub.add_parser('storyboard-export',help='package existing storyboard images, references, metadata and diagnostics for offline review (no generation)')
+    review.add_argument('--package',required=True)
+    review.add_argument('--out',help='output ZIP; defaults to ~/Downloads/<episode>-storyboard-review.zip')
+    review.add_argument('--asset-root',help='local root of canonical media storage keys')
+    review.add_argument('--asset-manifest',help='authoritative manifest for reference storage keys')
+    review.add_argument('--telemetry',default='.agenticforge/telemetry.jsonl')
+    review.add_argument('--log',help='optional foreground execution log (redacted in archive)')
+    review.add_argument('--git-sha',action='append',help='repository=full_commit_sha (repeatable)')
+    review.add_argument('--open-dir',action='store_true',help='open ZIP directory in the desktop file browser')
+    review.set_defaults(func=_export_storyboard)
+    g=sub.add_parser('generate'); g.add_argument('--package',required=True); g.add_argument('--shot-id',required=True); g.add_argument('--role',choices=['start_frame','end_frame','video'],default='start_frame'); g.add_argument('--provider',choices=['mock','fal'],default='mock'); g.add_argument('--output-dir'); g.add_argument('--asset-manifest'); g.add_argument('--asset-root'); g.add_argument('--telemetry',default='.agenticforge/telemetry.jsonl'); g.add_argument('--provider-timeout',type=float,default=None); g.add_argument('--provider-poll-interval',type=float,default=None); g.set_defaults(func=_generate)
     a=sub.add_parser('approve'); a.add_argument('--package',required=True); a.add_argument('--shot-id',required=True); a.add_argument('--kind',choices=['start_frame','end_frame','clip'],required=True); a.add_argument('--asset-id',required=True); a.add_argument('--telemetry',default='.agenticforge/telemetry.jsonl'); _review_args(a); a.set_defaults(func=_approve)
     rj=sub.add_parser('reject'); rj.add_argument('--package',required=True); rj.add_argument('--shot-id',required=True); rj.add_argument('--asset-id',required=True); rj.add_argument('--telemetry',default='.agenticforge/telemetry.jsonl'); _review_args(rj,rejection=True); rj.set_defaults(func=_reject)
     d=sub.add_parser('plan'); d.add_argument('--package',required=True); d.set_defaults(func=_plan)
