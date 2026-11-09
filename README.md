@@ -263,3 +263,7 @@ Public overwrites require the exact key in the release's publication approval.
 Forge Studios executes approved media packages authored by [Forge Worlds](https://github.com/AgenticForge-Labs/forge-worlds) and works with [Forge Puppeteer](https://github.com/AgenticForge-Labs/forge-puppeteer) for physical-stage performance. Studios owns deterministic media production; Worlds owns story and canon, while Puppeteer and device SDKs own physical execution safety.
 
 See `docs/ARCHITECTURE.md` and `AGENTS.md` for the current rules.
+
+## License
+
+AgenticForge Labs-authored code is licensed under the [Apache License 2.0](LICENSE). Third-party dependencies, datasets, recordings, and other externally sourced materials retain their respective licenses and attribution requirements.
