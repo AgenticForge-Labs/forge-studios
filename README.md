@@ -260,6 +260,6 @@ Public overwrites require the exact key in the release's publication approval.
 
 ## Repository boundary
 
-Forge Studios supersedes useful execution behavior from older Director/Animator/
-Filmmaker repositories, but those historical package contracts are not supported here.
+Forge Studios executes approved media packages authored by [Forge Worlds](https://github.com/AgenticForge-Labs/forge-worlds) and works with [Forge Puppeteer](https://github.com/AgenticForge-Labs/forge-puppeteer) for physical-stage performance. Studios owns deterministic media production; Worlds owns story and canon, while Puppeteer and device SDKs own physical execution safety.
+
 See `docs/ARCHITECTURE.md` and `AGENTS.md` for the current rules.
