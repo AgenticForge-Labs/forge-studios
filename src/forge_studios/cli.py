@@ -5,7 +5,7 @@ from .animator import AnimatorService, assert_generation_preflight
 from .asset_resolution import bind_missing_references,discover_asset_sources
 from .continuity import extract_boundary_frames
 from .director import AutonomyPolicy,DirectorService,plan_work
-from .filmmaker import render,write_edit_plan
+from .filmmaker import parse_resolution,render,write_edit_plan
 from .finishing import discover_finishing_profile,finish_episode,load_finishing_profile,score_video
 from .frame_plan import validate_frame_plans
 from .io import load_package,save_json
@@ -214,12 +214,12 @@ def _render(args):
     if profile is None:
         if args.music_mode not in (None,'none') or args.music_prompt or args.music_direction:
             raise ValueError('music finishing requires --finishing-profile or a discoverable show/finishing.yaml')
-        print(render(p,out,ffmpeg=args.ffmpeg,telemetry=sink)); return
+        print(render(p,out,ffmpeg=args.ffmpeg,telemetry=sink,resolution=args.resolution)); return
     print(finish_episode(
         p,package_path=args.package,output=out,profile=profile,manifest_path=args.asset_manifest,asset_root=args.asset_root,
         ffmpeg=args.ffmpeg,telemetry=sink,music_mode=args.music_mode,music_prompt=args.music_prompt,
         music_direction=args.music_direction,prompt_influence=args.prompt_influence,music_level=args.music_level,
-        picture_lock_output=args.picture_lock_out,music_output=args.music_out,progress=print,
+        resolution=args.resolution,picture_lock_output=args.picture_lock_out,music_output=args.music_out,progress=print,
         client_timeout_seconds=args.provider_timeout,poll_interval_seconds=args.provider_poll_interval,
     ))
 def _score_music(args):
@@ -262,6 +262,13 @@ def _reference(args):
 def _review_args(parser,*,rejection=False):
     parser.add_argument('--tag',action='append'); parser.add_argument('--score',action='append'); parser.add_argument('--reason' if rejection else '--note')
 
+def _resolution_arg(value):
+    try:
+        parse_resolution(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from exc
+    return value
+
 def build_parser():
     p=argparse.ArgumentParser(prog='forge-studios'); sub=p.add_subparsers(dest='cmd',required=True)
     k=sub.add_parser('keys'); ks=k.add_subparsers(dest='action',required=True); st=ks.add_parser('set'); st.add_argument('name'); st.add_argument('value',nargs='?'); ks.add_parser('list'); k.set_defaults(func=_keys)
@@ -283,7 +290,7 @@ def build_parser():
     d=sub.add_parser('plan'); d.add_argument('--package',required=True); d.set_defaults(func=_plan)
     au=sub.add_parser('auto'); au.add_argument('--package',required=True); au.add_argument('--provider',choices=['mock','fal'],default='mock'); au.add_argument('--output-dir'); au.add_argument('--asset-root'); au.add_argument('--telemetry',default='.agenticforge/telemetry.jsonl'); au.add_argument('--auto-approve-frames',action='store_true'); au.add_argument('--auto-approve-clips',action='store_true'); au.add_argument('--allow-video',action='store_true'); au.add_argument('--max-actions',type=int,default=100); au.set_defaults(func=_auto)
     ep=sub.add_parser('edit-plan'); ep.add_argument('--package',required=True); ep.add_argument('--out',required=True); ep.set_defaults(func=_edit_plan)
-    rr=sub.add_parser('render'); rr.add_argument('--package',required=True); rr.add_argument('--asset-manifest'); rr.add_argument('--asset-root'); rr.add_argument('--out'); rr.add_argument('--picture-lock-out'); rr.add_argument('--ffmpeg',default='ffmpeg'); rr.add_argument('--telemetry',default='.agenticforge/telemetry.jsonl'); _music_args(rr); rr.set_defaults(func=_render)
+    rr=sub.add_parser('render'); rr.add_argument('--package',required=True); rr.add_argument('--asset-manifest'); rr.add_argument('--asset-root'); rr.add_argument('--out'); rr.add_argument('--picture-lock-out'); rr.add_argument('--resolution',default='auto',type=_resolution_arg,help='auto: first video resolution; or WIDTHxHEIGHT to upscale/downscale with aspect-preserving padding'); rr.add_argument('--ffmpeg',default='ffmpeg'); rr.add_argument('--telemetry',default='.agenticforge/telemetry.jsonl'); _music_args(rr); rr.set_defaults(func=_render)
     sm=sub.add_parser('score-music'); sm.add_argument('--package',required=True); sm.add_argument('--video',required=True); sm.add_argument('--out',required=True); sm.add_argument('--ffmpeg',default='ffmpeg'); sm.add_argument('--telemetry',default='.agenticforge/telemetry.jsonl'); _music_args(sm); sm.set_defaults(func=_score_music)
     sep=sub.add_parser('short-edit-plan'); sep.add_argument('--package',required=True); sep.add_argument('--short-id',required=True); sep.add_argument('--out',required=True); sep.set_defaults(func=_short_plan)
     rs=sub.add_parser('render-short'); rs.add_argument('--package',required=True); rs.add_argument('--asset-root'); rs.add_argument('--short-id',required=True); rs.add_argument('--out'); rs.add_argument('--ffmpeg',default='ffmpeg'); rs.add_argument('--width',type=int,default=1080); rs.add_argument('--height',type=int,default=1920); rs.add_argument('--fps',type=int,default=30); rs.add_argument('--telemetry',default='.agenticforge/telemetry.jsonl'); rs.set_defaults(func=_render_short)

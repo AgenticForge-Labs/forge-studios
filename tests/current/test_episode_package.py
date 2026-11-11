@@ -166,6 +166,32 @@ def test_fal_kling_prompt_limit_fails_before_provider_call():
         )
 
 
+def test_fal_ltx_fast_video_prompt_limit_fails_before_provider_call():
+    import pytest
+
+    provider = FalProvider(mode="normal")
+    request = MediaRequest(
+        kind="video", shot_id="one", role="video", prompt="x" * 5001,
+        duration_seconds=20,
+    )
+    model = provider.model_for(request)
+    with pytest.raises(ValueError, match="up to 5000 characters"):
+        provider._apply_profile_defaults(request, model, {"prompt": request.prompt})
+
+
+def test_fal_ltx_fast_duration_uses_numeric_provider_field():
+    provider = FalProvider(mode="normal")
+    request = MediaRequest(
+        kind="video", shot_id="one", role="video", prompt="A short action.",
+        duration_seconds=20,
+    )
+    model = provider.model_for(request)
+    payload = {"prompt": request.prompt}
+    provider._apply_profile_defaults(request, model, payload)
+    assert payload["duration"] == 20
+    assert isinstance(payload["duration"], int)
+
+
 def test_fal_translates_only_reference_alias_casing_for_kling():
     authored = "REFERENCES\n@image1: character identity.\n@image2: base composition.\n\nEDIT\nMove the character."
     assert FalProvider._provider_prompt(

@@ -182,6 +182,28 @@ Paid video remains explicitly gated.
 forge-studios auto --package episode-package.json --provider fal
 ```
 
+### Opt-in Puppeteer behavior-pack execution
+
+`forge_studios.puppeteer_bridge.dispatch_behavior_pack` can hand one resolved
+shot to an installed Forge Puppeteer `MCPClient`. This is an explicit Python
+API; it is not selected by shot prose or the normal Studios CLI. The caller
+must supply the operator-authored MCP server configuration, behavior-pack
+manifest path, pack ID, exact `sha256:` pack revision, server name, and take ID.
+Puppeteer compiles and revision-checks the pack, then performs its ordinary
+capability, readiness, authority, ownership, and catalog preflight. Studios
+records the result as a candidate physical-take asset. Install the compatible
+`forge-puppeteer[mcp]` package in the same Python environment to enable this
+route. If only the base `forge-puppeteer` package is present, dispatch reports
+the missing extra and the install command. The repeatable fake-stdio integration
+test is `tests/current/test_puppeteer_bridge.py::test_installed_puppeteer_wheel_stdio_handoff_and_stale_pin`;
+it requires the installed `forge-puppeteer[mcp]` wheel and its
+`forge-puppeteer-mcp` console script on `PATH`, and does not use a Puppeteer
+source checkout.
+The server command and arguments are passed as structured configuration to
+Puppeteer's MCP client; request data cannot supply executable text or a tool.
+Use mock-only server profiles for integration checks. Physical execution still
+requires the operator's active motion authority and broker approval.
+
 ## Provider configuration
 
 Forge Studios uses the shared AgenticForge AI Runtime as its default provider transport.
@@ -221,7 +243,24 @@ forge-studios render --package episode-package.json --out episode.mp4
 forge-studios timeline --package episode-package.json --out episode.otio --require-media
 ```
 
-`render` always preserves `package.shots` order and generated clip audio. When it can
+`render` preserves `package.shots` order and plays every selected video through to
+its end, preserving generated clip audio. Package shot durations do not trim or extend
+videos. Edit plans and media-bound timelines use probed video durations as well;
+still-image fallbacks retain the package duration as their hold time. Selected media
+must be available locally, with FFmpeg and FFprobe installed.
+
+The default `--resolution auto` uses the first selected video's resolution (or the
+first image when the edit contains only stills). Mixed sizes are fitted to that
+canvas with aspect-preserving padding. End cards use the same canvas. Odd source
+dimensions round up to even pixels for H.264. Set an explicit even `WIDTHxHEIGHT`
+to upscale or downscale; encoding remains 30 fps H.264 with stereo AAC:
+
+```bash
+forge-studios render --package episode-package.json --out episode.mp4 --music-mode none
+forge-studios render --package episode-package.json --out episode-1080p.mp4 --resolution 1920x1080 --music-mode none
+```
+
+When it can
 auto-discover a show-owned `show/finishing.yaml`, it also renders that profile's branded
 end card, saves an unscored `episode-picture-lock.mp4`, generates a Sonilo music stem
 through fal, and creates the final deterministic audio mix. A show can therefore keep its

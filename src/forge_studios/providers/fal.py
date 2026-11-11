@@ -41,6 +41,10 @@ _IMAGE_MODEL_PROFILES = {
     "openai/gpt-image-2/edit": FalImageModelProfile("image_urls", "list", 16),
 }
 _FAST_VIDEO_DURATIONS = {6, 8, 10, 12, 14, 16, 18, 20}
+_VIDEO_PROMPT_LIMITS = {
+    # Fal's validation response for the current LTX fast endpoint reports this cap.
+    "fal-ai/ltx-2.3/image-to-video/fast": 5000,
+}
 
 
 def image_model_profile(model: str) -> FalImageModelProfile:
@@ -222,6 +226,14 @@ class FalProvider:
                 payload.setdefault('enable_safety_checker', True)
             return
 
+        prompt = str(payload.get('prompt') or '')
+        max_prompt_chars = _VIDEO_PROMPT_LIMITS.get(model)
+        if max_prompt_chars is not None and len(prompt) > max_prompt_chars:
+            raise ValueError(
+                f'Fal model {model!r} accepts prompts up to {max_prompt_chars} characters; '
+                f'received {len(prompt)}. Shorten the authored prompt upstream in Forge Worlds.'
+            )
+
         if 'video_size' not in payload and 'resolution' not in payload:
             if self.profile.video.width and self.profile.video.height:
                 payload['video_size']={'width':self.profile.video.width,'height':self.profile.video.height}
@@ -246,7 +258,7 @@ class FalProvider:
                     f'Fal LTX fast video supports durations {allowed} seconds; requested {duration:g}. '
                     'Forge Studios will not silently shorten the shot.'
                 )
-            payload['duration']=str(rounded)
+            payload['duration']=rounded
 
     def _diagnostic_settings(self, *, request: MediaRequest, model: str, payload: dict[str,Any], reference_count: int) -> dict[str,Any]:
         settings: dict[str,Any]={
@@ -277,6 +289,10 @@ class FalProvider:
                 'enable_safety_checker':payload.get('enable_safety_checker','provider-default'),
             })
         else:
+            settings.update({
+                'max_prompt_chars':_VIDEO_PROMPT_LIMITS.get(model),
+                'prompt_chars':len(str(payload.get('prompt') or '')),
+            })
             settings.update({
                 'start_frame_field':os.getenv('FAL_VIDEO_START_FRAME_FIELD','image_url'),
                 'end_frame_field':os.getenv('FAL_VIDEO_END_FRAME_FIELD','end_image_url'),

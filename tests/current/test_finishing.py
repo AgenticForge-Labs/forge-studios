@@ -83,7 +83,7 @@ def test_last_story_segment_can_fade_before_brand_card(tmp_path):
         kind='generated_clip',has_audio=True,fade_out_seconds=0.35,
     )
     assert 'fade=t=out:st=9.65:d=0.35' in command[command.index('-vf')+1]
-    assert command[command.index('-af')+1] == 'afade=t=out:st=9.65:d=0.35'
+    assert command[command.index('-af')+1] == 'apad,afade=t=out:st=9.65:d=0.35'
 
 
 def test_music_mix_preserves_picture_audio_at_full_gain():

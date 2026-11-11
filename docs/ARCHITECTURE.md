@@ -143,7 +143,13 @@ errors, latency/cost when available, and review decisions. Candidate history is 
 ## Filmmaker
 
 Filmmaker selects approved media in package order and creates deterministic edit/timeline
-projections. It does not introduce a second editorial truth.
+projections. It does not introduce a second editorial truth. Video segments play to
+EOF; package durations are generation targets, not assembly trim points. Selected
+video durations are probed for edit plans and media-bound timeline projections;
+still-image holds and unbound planning shots use authored durations. Rendering uses
+the first video's resolution by default, fitting other media with padding. An explicit
+`render --resolution WIDTHxHEIGHT` scales the full edit and its end card to that
+canvas. All segments share 30 fps H.264/stereo AAC for concatenation.
 
 Episode finishing is two-stage:
 

@@ -439,6 +439,7 @@ def finish_episode(
     manifest_path: str|Path|None=None,
     asset_root: str|Path|None=None,
     ffmpeg: str='ffmpeg',
+    resolution: str='auto',
     telemetry: TelemetrySink|None=None,
     music_mode: MusicMode|None=None,
     music_prompt: str|None=None,
@@ -462,7 +463,7 @@ def finish_episode(
             raise ValueError('end card requires --asset-manifest/--asset-root or discoverable Forge Born asset sources')
         end_card=resolve_end_card(profile,manifest_path=manifest,asset_root=root)
     picture=Path(picture_lock_output).expanduser().resolve() if picture_lock_output else out.with_name(f'{out.stem}-picture-lock{out.suffix}')
-    render(package,picture,ffmpeg=ffmpeg,telemetry=sink,end_card=end_card)
+    render(package,picture,ffmpeg=ffmpeg,telemetry=sink,end_card=end_card,resolution=resolution)
     return score_video(
         picture,out,profile=profile,music_mode=music_mode,music_prompt=music_prompt,music_direction=music_direction,
         prompt_influence=prompt_influence,music_level=music_level,music_output=music_output,ffmpeg=ffmpeg,

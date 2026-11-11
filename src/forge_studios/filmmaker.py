@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -9,10 +10,6 @@ from .contracts import EpisodePackage
 from .telemetry import TelemetrySink
 
 
-_VIDEO_FILTER = (
-    'scale=1280:720:force_original_aspect_ratio=decrease,'
-    'pad=1280:720:(ow-iw)/2:(oh-ih)/2,format=yuv420p'
-)
 _SILENT_AUDIO = 'anullsrc=channel_layout=stereo:sample_rate=48000'
 _IMAGE_KINDS = {'storyboard_image', 'start_frame', 'end_frame', 'generated_image', 'image'}
 
@@ -49,14 +46,16 @@ class EndCardRenderSpec:
                 raise FileNotFoundError(logo)
 
 
-def resolve_final_media(package: EpisodePackage) -> list[dict]:
+def resolve_final_media(package: EpisodePackage, *, ffprobe: str = "ffprobe") -> list[dict]:
     timeline=[]; t=0.0
     for shot in package.shots:
         chosen=shot.final_clip_asset_id or shot.approved_clip_asset_id or shot.approved_start_frame_asset_id
         if not chosen: raise ValueError(f'shot {shot.shot_id} has no approved media')
         asset=package.find_asset(chosen)
-        timeline.append({'shot_id':shot.shot_id,'asset_id':chosen,'uri':asset.uri,'kind':asset.kind,'start_seconds':t,'duration_seconds':shot.duration_seconds,'edit_intent':shot.edit_intent})
-        t += shot.duration_seconds
+        media=probe_media(asset.uri, ffprobe=ffprobe, image=asset.kind in _IMAGE_KINDS)
+        duration=shot.duration_seconds if asset.kind in _IMAGE_KINDS else media['duration_seconds']
+        timeline.append({'shot_id':shot.shot_id,'asset_id':chosen,'uri':asset.uri,'kind':asset.kind,'start_seconds':t,'duration_seconds':duration,'edit_intent':shot.edit_intent, **media})
+        t += duration
     return timeline
 
 
@@ -69,19 +68,61 @@ def _ffprobe_for(ffmpeg: str) -> str:
     return str(path.with_name('ffprobe')) if path.name != 'ffprobe' else str(path)
 
 
-def _has_audio(path: Path, *, ffprobe: str) -> bool:
-    """Return whether a media file contains at least one audio stream."""
+def probe_media(uri: str, *, ffprobe: str = 'ffprobe', image: bool = False) -> dict:
+    """Read selected local media; video timing comes from the video stream."""
+    if uri.startswith(('http://', 'https://')):
+        raise ValueError('Filmmaker requires local media paths; download remote assets first')
+    path=Path(uri)
+    if not path.is_file():
+        raise FileNotFoundError(path)
     result=subprocess.run(
-        [
-            ffprobe,'-v','error','-select_streams','a:0',
-            '-show_entries','stream=index','-of','csv=p=0',str(path),
-        ],
-        check=False,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL,
-        text=True,
+        [ffprobe, '-v', 'error', '-show_streams', '-show_format', '-of', 'json', str(path)],
+        check=True, capture_output=True, text=True,
     )
-    return result.returncode == 0 and bool(result.stdout.strip())
+    raw=json.loads(result.stdout)
+    video=next((s for s in raw.get('streams', []) if s.get('codec_type') == 'video'), None)
+    if video is None:
+        raise ValueError(f'No video stream in {path}')
+    width, height=int(video['width']), int(video['height'])
+    rotation=next((float(s['rotation']) for s in video.get('side_data_list', []) if 'rotation' in s), 0)
+    if round(rotation) % 180:
+        width, height=height, width
+    info={'width': width, 'height': height,
+          'has_audio': any(s.get('codec_type') == 'audio' for s in raw.get('streams', []))}
+    if not image:
+        duration=video.get('duration')
+        if duration in (None, 'N/A'):
+            duration=raw.get('format', {}).get('duration')
+        try:
+            duration=float(duration)
+        except (TypeError, ValueError):
+            raise ValueError(f'Cannot determine video duration for {path}') from None
+        if not math.isfinite(duration) or duration <= 0:
+            raise ValueError(f'Invalid video duration for {path}: {duration}')
+        info['duration_seconds']=duration
+    return info
+
+
+def parse_resolution(value: str) -> tuple[int, int] | None:
+    """Parse auto or an even WIDTHxHEIGHT canvas supported by H.264/yuv420p."""
+    if value == 'auto':
+        return None
+    try:
+        width, height=(int(part) for part in value.lower().split('x'))
+    except ValueError:
+        raise ValueError('resolution must be auto or WIDTHxHEIGHT (for example 1920x1080)') from None
+    if width <= 0 or height <= 0 or width % 2 or height % 2:
+        raise ValueError('resolution dimensions must be positive even integers')
+    return width, height
+
+
+def _render_resolution(timeline: list[dict], resolution: str) -> tuple[int, int]:
+    explicit=parse_resolution(resolution)
+    if explicit:
+        return explicit
+    source=next((item for item in timeline if item['kind'] not in _IMAGE_KINDS), timeline[0])
+    # H.264 4:2:0 requires even dimensions; round an odd source canvas up.
+    return (source['width']+1)//2*2, (source['height']+1)//2*2
 
 
 def _segment_command(
@@ -93,19 +134,24 @@ def _segment_command(
     kind: str,
     has_audio: bool,
     fade_out_seconds: float = 0.0,
+    width: int = 1280,
+    height: int = 720,
 ) -> list[str]:
     """Normalize a segment while preserving authored audio and optional final fade."""
     duration_seconds=float(duration)
     if fade_out_seconds < 0 or fade_out_seconds > duration_seconds:
         raise ValueError('fade_out_seconds must be between zero and the segment duration')
-    video_filter=_VIDEO_FILTER
-    audio_filter: str|None=None
+    video_filter=(
+        f'scale={width}:{height}:force_original_aspect_ratio=decrease:force_divisible_by=2,'
+        f'pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p'
+    )
+    audio_filter='apad' if has_audio else None
     if fade_out_seconds:
         start=max(0.0,duration_seconds-fade_out_seconds)
         video_filter += f',fade=t=out:st={start:g}:d={fade_out_seconds:g}'
-        audio_filter = f'afade=t=out:st={start:g}:d={fade_out_seconds:g}'
+        fade=f'afade=t=out:st={start:g}:d={fade_out_seconds:g}'
+        audio_filter = f'{audio_filter},{fade}' if audio_filter else fade
     common=[
-        '-t',duration,
         '-vf',video_filter,
         '-r','30',
         '-c:v','libx264',
@@ -120,13 +166,13 @@ def _segment_command(
             ffmpeg,'-y','-loop','1','-i',str(src),
             '-f','lavfi','-i',_SILENT_AUDIO,
             '-map','0:v:0','-map','1:a:0',
-            *common,'-shortest',str(seg),
+            '-t',duration,*common,'-shortest',str(seg),
         ]
     if has_audio:
         return [
             ffmpeg,'-y','-i',str(src),
             '-map','0:v:0','-map','0:a:0',
-            *common,str(seg),
+            *common,'-shortest',str(seg),
         ]
     return [
         ffmpeg,'-y','-i',str(src),
@@ -184,31 +230,40 @@ def render(
     ffmpeg: str='ffmpeg',
     telemetry: TelemetrySink|None=None,
     end_card: EndCardRenderSpec|None=None,
+    resolution: str = "auto",
 ) -> Path:
     """Render approved shots in package order, optionally followed by a branded end card.
 
+    Videos play to EOF rather than being trimmed to package durations. The default
+    canvas matches the first video; an explicit resolution scales with padding.
     Generated video audio is kept and normalized to stereo AAC. Still-image fallbacks
     and rare silent clips receive a silent stereo track so every concat segment has a
     compatible audio stream. Narrative shots use hard cuts; when an end card is supplied,
     only the final narrative shot fades to black before the card.
     """
-    timeline=resolve_final_media(package); output=Path(output); work=output.parent/(output.stem+'-segments'); work.mkdir(parents=True,exist_ok=True)
-    segments=[]; ffprobe=_ffprobe_for(ffmpeg)
+    parse_resolution(resolution)
+    timeline=resolve_final_media(package, ffprobe=_ffprobe_for(ffmpeg))
+    if not timeline:
+        raise ValueError('Cannot render an episode with no shots')
+    width,height=_render_resolution(timeline,resolution)
+    output=Path(output); work=output.parent/(output.stem+'-segments'); work.mkdir(parents=True,exist_ok=True)
+    segments=[]
     final_fade=end_card.fade_seconds if end_card else 0.0
     for i,item in enumerate(timeline):
         uri=item['uri']
         if uri.startswith('http://') or uri.startswith('https://'): raise ValueError('Filmmaker render requires local media paths; download remote assets first')
         src=Path(uri); seg=work/f'{i:04d}-{item["shot_id"]}.mp4'; dur=str(item['duration_seconds'])
-        has_audio=False if item['kind'] in _IMAGE_KINDS else _has_audio(src,ffprobe=ffprobe)
+        has_audio=item['has_audio'] if item['kind'] not in _IMAGE_KINDS else False
         cmd=_segment_command(
             ffmpeg=ffmpeg,src=src,seg=seg,duration=dur,kind=item['kind'],has_audio=has_audio,
-            fade_out_seconds=final_fade if i==len(timeline)-1 else 0.0,
+            fade_out_seconds=min(final_fade, float(dur)) if i==len(timeline)-1 else 0.0,
+            width=width,height=height,
         )
         subprocess.run(cmd,check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL); segments.append(seg)
     extra_duration=0.0
     if end_card:
         card=work/'end-card.mp4'
-        subprocess.run(_end_card_command(ffmpeg=ffmpeg,spec=end_card,output=card),check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+        subprocess.run(_end_card_command(ffmpeg=ffmpeg,spec=end_card,output=card,width=width,height=height),check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
         segments.append(card); extra_duration=end_card.duration_seconds
     concat=work/'concat.txt'; concat.write_text(''.join(f"file '{p.resolve()}'\n" for p in segments))
     subprocess.run([ffmpeg,'-y','-f','concat','-safe','0','-i',str(concat),'-c','copy',str(output)],check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
@@ -216,6 +271,6 @@ def render(
         'final_render.completed',production_id=package.production_id,episode_id=package.episode_id,
         show_id=package.show_id,
         uri=str(output.resolve()),duration_seconds=sum(x['duration_seconds'] for x in timeline)+extra_duration,
-        end_card=bool(end_card),
+        end_card=bool(end_card),width=width,height=height,
     )
     return output
