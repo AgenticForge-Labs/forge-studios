@@ -250,6 +250,10 @@ class FalProvider:
             if fps <= 0:
                 raise ValueError('video fps must be positive')
             payload['num_frames']=max(1,round(duration*fps))
+        elif 'heygen' in model:
+            rounded=round(duration)
+            # HeyGen image-to-video supports up to 15 seconds in 5s increments: 5, 10, 15
+            payload['duration']=min(rounded, 15) if rounded >= 5 else 5
         else:
             rounded=round(duration)
             if abs(duration-rounded) > 1e-6 or rounded not in _FAST_VIDEO_DURATIONS:
