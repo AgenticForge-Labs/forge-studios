@@ -1,3 +1,6 @@
+import shutil
+
+import pytest
 from pathlib import Path
 
 from forge_studios.filmmaker import _end_card_command, _segment_command
@@ -125,6 +128,7 @@ def test_finishing_profile_from_package_provides_inline_sonilo_description():
     assert compose_music_prompt(profile, 'style') == 'Warm percussive workshop score. No vocals.'
 
 
+@pytest.mark.skipif(not shutil.which('ffmpeg') or not shutil.which('ffprobe'), reason='FFmpeg required')
 def test_end_card_renders_episode_metadata_copyright_and_fade_to_black(tmp_path):
     from forge_studios.contracts import EpisodePackage, Shot
     from forge_studios.filmmaker import probe_media, render
