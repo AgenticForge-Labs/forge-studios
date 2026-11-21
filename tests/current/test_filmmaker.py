@@ -111,3 +111,42 @@ def test_timeline_projection_uses_media_timing_without_otio(media_package, monke
     monkeypatch.setattr(timeline_adapter, 'build_timeline', lambda clips, **kwargs: clips)
     clips=timeline_adapter.timeline_from_episode_package(media_package, require_approved_media=True)
     assert [clip.duration_seconds for clip in clips] == pytest.approx([1.2, 0.6])
+
+
+def test_render_levels_per_clip_audio_loudness(tmp_path):
+    import re
+    quiet, loud = tmp_path / 'quiet.mp4', tmp_path / 'loud.mp4'
+    run('ffmpeg', '-y', '-f', 'lavfi', '-i', 'color=black:s=320x180:r=30:d=1.2',
+        '-f', 'lavfi', '-i', 'sine=frequency=440:duration=1.2',
+        '-af', 'volume=0.05', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', str(quiet))
+    run('ffmpeg', '-y', '-f', 'lavfi', '-i', 'color=black:s=320x180:r=30:d=1.2',
+        '-f', 'lavfi', '-i', 'sine=frequency=440:duration=1.2',
+        '-af', 'volume=0.9', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', str(loud))
+    pkg = EpisodePackage(
+        production_id='production', episode_id='episode', show_id='show',
+        title='Loudness', arc='Test', target_duration_seconds=2.4,
+        shots=[
+            Shot(shot_id=name, duration_seconds=1.2, site_id='site',
+                 start_frame_prompt='Still.', video_prompt='Action.',
+                 approved_clip_asset_id=name)
+            for name in ('quiet', 'loud')
+        ],
+        assets=[
+            AssetRecord(asset_id=name, kind='generated_clip', status='approved', uri=str(path))
+            for name, path in [('quiet', quiet), ('loud', loud)]
+        ],
+    )
+    out = render(pkg, tmp_path / 'leveled.mp4', telemetry=TelemetrySink(tmp_path / 'events.jsonl'))
+    seg0 = tmp_path / 'leveled-segments' / '0000-quiet.mp4'
+    seg1 = tmp_path / 'leveled-segments' / '0001-loud.mp4'
+    means = []
+    for seg in (seg0, seg1):
+        res = subprocess.run(
+            ['ffmpeg', '-i', str(seg), '-af', 'volumedetect', '-f', 'null', '-'],
+            capture_output=True, text=True, check=True,
+        )
+        m = re.search(r'mean_volume:\s*([-\d.]+)\s*dB', res.stderr)
+        assert m is not None
+        means.append(float(m.group(1)))
+    assert abs(means[0] - means[1]) < 2.0
+    assert probe_media(str(out))['has_audio']

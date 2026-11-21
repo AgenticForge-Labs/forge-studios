@@ -169,7 +169,13 @@ configured Sonilo route uses the show's constant style prompt; video-only and cu
 prompt reruns use the same scoring primitive.
 
 Ordinary shot boundaries remain hard cuts by default. End-card fades are deterministic
-finishing behavior, not a reason to add semantic editing decisions inside Studios.
+finishing behavior, not a reason to add semantic editing decisions inside Studios. End-card
+zoom uses 8x-supersampled `zoompan` inside a fixed box to avoid integer-scale jitter, and
+spoken/ambience clips use EBU R128 loudness normalization by default (`--no-normalize-audio`
+opts out). When an end card is enabled, `score_video` begins the music fade-out at least
+5 seconds before the end so the score settles by the black transition into the card. For
+~150s+ 1080p picture locks that exceed AI Runtime's 80M base64 limit (~60 MB binary), score
+against a 640p proxy (`~8 MB`) and mix the returned stem onto the 1080p picture lock.
 
 ## Autonomy
 

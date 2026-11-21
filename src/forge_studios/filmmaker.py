@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -26,6 +27,10 @@ class EndCardRenderSpec:
     zoom_start: float = 0.96
     zoom_end: float = 1.06
     background: str = 'black'
+    episode_label: str | None = None
+    episode_title: str | None = None
+    copyright_text: str | None = None
+    font_file: Path | None = None
 
     def validate(self) -> None:
         if self.duration_seconds <= 0:
@@ -125,6 +130,48 @@ def _render_resolution(timeline: list[dict], resolution: str) -> tuple[int, int]
     return (source['width']+1)//2*2, (source['height']+1)//2*2
 
 
+def _measure_loudnorm_filter(
+    *,
+    ffmpeg: str,
+    src: Path,
+    target_lufs: float = -16.0,
+    true_peak_db: float = -1.5,
+    lra: float = 11.0,
+) -> str | None:
+    """Measure clip loudness so per-shot audio levels match before concatenation."""
+    res = subprocess.run(
+        [
+            ffmpeg, '-hide_banner', '-nostats', '-i', str(src), '-vn',
+            '-af', f'loudnorm=I={target_lufs:g}:TP={true_peak_db:g}:LRA={lra:g}:print_format=json',
+            '-f', 'null', '-',
+        ],
+        capture_output=True, text=True,
+    )
+    if res.returncode != 0:
+        return None
+    match = re.search(r'\{[^{}]*"input_i"[^{}]*\}', res.stderr, re.DOTALL)
+    if not match:
+        return None
+    try:
+        stats = json.loads(match.group(0))
+        input_i = float(stats['input_i'])
+        input_tp = float(stats['input_tp'])
+        input_lra = float(stats['input_lra'])
+        input_thresh = float(stats['input_thresh'])
+        offset = float(stats['target_offset'])
+    except (KeyError, TypeError, ValueError):
+        return None
+    if not all(math.isfinite(v) for v in (input_i, input_tp, input_lra, input_thresh, offset)):
+        return None
+    if input_i <= -70.0:
+        return None
+    return (
+        f'loudnorm=I={target_lufs:g}:TP={true_peak_db:g}:LRA={lra:g}:'
+        f'measured_I={input_i:g}:measured_TP={input_tp:g}:measured_LRA={input_lra:g}:'
+        f'measured_thresh={input_thresh:g}:offset={offset:g}:linear=true'
+    )
+
+
 def _segment_command(
     *,
     ffmpeg: str,
@@ -136,6 +183,7 @@ def _segment_command(
     fade_out_seconds: float = 0.0,
     width: int = 1280,
     height: int = 720,
+    audio_normalize_filter: str | None = None,
 ) -> list[str]:
     """Normalize a segment while preserving authored audio and optional final fade."""
     duration_seconds=float(duration)
@@ -145,12 +193,16 @@ def _segment_command(
         f'scale={width}:{height}:force_original_aspect_ratio=decrease:force_divisible_by=2,'
         f'pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p'
     )
-    audio_filter='apad' if has_audio else None
+    audio_filters: list[str] = []
+    if has_audio:
+        if audio_normalize_filter:
+            audio_filters.append(audio_normalize_filter)
+        audio_filters.append('apad')
     if fade_out_seconds:
         start=max(0.0,duration_seconds-fade_out_seconds)
         video_filter += f',fade=t=out:st={start:g}:d={fade_out_seconds:g}'
-        fade=f'afade=t=out:st={start:g}:d={fade_out_seconds:g}'
-        audio_filter = f'{audio_filter},{fade}' if audio_filter else fade
+        audio_filters.append(f'afade=t=out:st={start:g}:d={fade_out_seconds:g}')
+    audio_filter = ','.join(audio_filters) if audio_filters else None
     common=[
         '-vf',video_filter,
         '-r','30',
@@ -176,10 +228,36 @@ def _segment_command(
         ]
     return [
         ffmpeg,'-y','-i',str(src),
-        '-f','lavfi','-i',_SILENT_AUDIO,
+        '-f','lavfi','-t',duration,'-i',_SILENT_AUDIO,
         '-map','0:v:0','-map','1:a:0',
         *common,'-shortest',str(seg),
     ]
+
+
+def _escape_drawtext_text(value: str) -> str:
+    return (
+        value.replace('\\', '\\\\')
+        .replace(':', '\\:')
+        .replace("'", "\\'")
+        .replace('%', '\\%')
+    )
+
+
+def _escape_drawtext_path(path: Path) -> str:
+    return str(path).replace('\\', '\\\\').replace(':', '\\:').replace("'", "\\'")
+
+
+def _resolve_end_card_font(spec_font: Path | None) -> Path | None:
+    if spec_font is not None:
+        return spec_font if spec_font.is_file() else None
+    for candidate in (
+        Path('/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf'),
+        Path('/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'),
+        Path('/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf'),
+    ):
+        if candidate.is_file():
+            return candidate
+    return None
 
 
 def _end_card_command(
@@ -193,31 +271,100 @@ def _end_card_command(
 ) -> list[str]:
     spec.validate()
     duration=spec.duration_seconds
+    frames=max(2,round(duration*fps))
     main_width=max(1,round(width*spec.main_width_fraction))
     secondary_width=max(1,round(width*spec.secondary_width_fraction))
     margin_x=max(1,round(width*spec.margin_fraction))
     margin_y=max(1,round(height*spec.margin_fraction))
     fade=min(spec.fade_seconds,duration/2)
     fade_out_start=max(0.0,duration-fade)
-    zoom_delta=spec.zoom_end-spec.zoom_start
-    zoom_expr=f'{spec.zoom_start:g}+({zoom_delta:g})*t/{duration:g}'
-    filters=(
-        f"[1:v]format=rgba,scale=w='{main_width}*({zoom_expr})':h=-2:eval=frame[main];"
-        f'[2:v]format=rgba,scale={secondary_width}:-2[brand];'
-        f"[0:v][main]overlay=x='(W-w)/2':y='(H-h)/2':shortest=1[tmp];"
-        f"[tmp][brand]overlay=x='W-w-{margin_x}':y='H-h-{margin_y}':shortest=1,"
-        f'fade=t=in:st=0:d={fade:g},fade=t=out:st={fade_out_start:g}:d={fade:g}[v]'
+    has_episode_text = bool((spec.episode_label or '').strip() or (spec.episode_title or '').strip())
+    max_main_height = max(1, round(height * (0.44 if has_episode_text else 0.62)))
+    max_secondary_height = max(1, round(height * 0.13))
+    main_y = f'{round(height * 0.31)}-h/2' if has_episode_text else '(H-h)/2'
+    scale_max = max(spec.zoom_start, spec.zoom_end)
+    scale_min = min(spec.zoom_start, spec.zoom_end)
+    if abs(scale_max - scale_min) < 1e-6:
+        fixed_w = max(1, round(main_width * spec.zoom_start))
+        fixed_h = max(1, round(max_main_height * spec.zoom_start))
+        main_filter = (
+            f"[1:v]format=rgba,scale=w={fixed_w}:h={fixed_h}:"
+            f"force_original_aspect_ratio=decrease:flags=lanczos[main];"
+        )
+        main_input = ['-loop','1','-framerate',str(fps),'-i',str(spec.main_logo)]
+    else:
+        box_w = max(2, round(main_width * scale_max))
+        box_h = max(2, round(max_main_height * scale_max))
+        if box_w % 2: box_w += 1
+        if box_h % 2: box_h += 1
+        supersample = 8
+        pad_w, pad_h = box_w * supersample, box_h * supersample
+        in_w = max(2, round(main_width * scale_min * supersample))
+        in_h = max(2, round(max_main_height * scale_min * supersample))
+        out2x_w, out2x_h = box_w * 2, box_h * 2
+        z_ratio = scale_max / scale_min
+        if spec.zoom_end >= spec.zoom_start:
+            z_expr = f"1+({z_ratio - 1:.10f})*on/{frames - 1}"
+        else:
+            z_expr = f"{z_ratio:.10f}-({z_ratio - 1:.10f})*on/{frames - 1}"
+        main_filter = (
+            f"[1:v]format=rgba,scale=w={in_w}:h={in_h}:"
+            f"force_original_aspect_ratio=decrease:flags=lanczos[lg];"
+            f"color=c=black@0.0:s={pad_w}x{pad_h}:r={fps}:d=0.1,format=rgba[zbg];"
+            f"[zbg][lg]overlay=x='(W-w)/2':y='(H-h)/2':shortest=1,format=rgba,"
+            f"zoompan=z='{z_expr}':x='(iw-iw/zoom)/2':y='(ih-ih/zoom)/2':"
+            f"d={frames}:s={out2x_w}x{out2x_h}:fps={fps},"
+            f"scale=w={box_w}:h={box_h}:flags=lanczos,format=rgba[main];"
+        )
+        main_input = ['-i',str(spec.main_logo)]
+    chain = (
+        f"{main_filter}"
+        f"[2:v]format=rgba,scale=w={secondary_width}:h={max_secondary_height}:force_original_aspect_ratio=decrease:flags=lanczos[brand];"
+        f"[0:v][main]overlay=x='(W-w)/2':y='{main_y}':shortest=1[tmp];"
+        f"[tmp][brand]overlay=x='W-w-{margin_x}':y='H-h-{margin_y}':shortest=1"
     )
+    font_path = _resolve_end_card_font(spec.font_file)
+    bold_font_path = Path('/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf')
+    if spec.font_file is not None or not bold_font_path.is_file():
+        bold_font_path = font_path
+    font_opt = f"fontfile='{_escape_drawtext_path(font_path)}':" if font_path else ''
+    bold_opt = f"fontfile='{_escape_drawtext_path(bold_font_path)}':" if bold_font_path else font_opt
+    draw_filters: list[str] = []
+    label = (spec.episode_label or '').strip()
+    title = (spec.episode_title or '').strip()
+    copyright_line = (spec.copyright_text or '').strip()
+    if label:
+        label_size = max(14, round(height * 0.025))
+        label_y = round(height * 0.60)
+        draw_filters.append(
+            f"drawtext={font_opt}text='{_escape_drawtext_text(label)}':"
+            f"fontsize={label_size}:fontcolor=0xC8B89A:x='(w-text_w)/2':y={label_y}"
+        )
+    if title:
+        title_size = max(22, round(height * 0.048))
+        title_y = round(height * (0.655 if label else 0.61))
+        draw_filters.append(
+            f"drawtext={bold_opt}text='{_escape_drawtext_text(title)}':"
+            f"fontsize={title_size}:fontcolor=0xF5F3EE:x='(w-text_w)/2':y={title_y}"
+        )
+    if copyright_line:
+        copy_size = max(12, round(height * 0.020))
+        draw_filters.append(
+            f"drawtext={font_opt}text='{_escape_drawtext_text(copyright_line)}':"
+            f"fontsize={copy_size}:fontcolor=0x9A9A9A:x={margin_x}:y=h-text_h-{margin_y}"
+        )
+    text_stage = (',' + ','.join(draw_filters)) if draw_filters else ''
+    filters = f"{chain}{text_stage},fade=t=in:st=0:d={fade:g},fade=t=out:st={fade_out_start:g}:d={fade:g}[v]"
     return [
-        ffmpeg,'-y',
+        ffmpeg,'-nostdin','-y',
         '-f','lavfi','-i',f'color=c={spec.background}:s={width}x{height}:r={fps}:d={duration:g}',
-        '-loop','1','-framerate',str(fps),'-i',str(spec.main_logo),
+        *main_input,
         '-loop','1','-framerate',str(fps),'-i',str(spec.secondary_logo),
         '-f','lavfi','-i',_SILENT_AUDIO,
         '-filter_complex',filters,
         '-map','[v]','-map','3:a:0',
         '-t',f'{duration:g}','-r',str(fps),
-        '-c:v','libx264','-pix_fmt','yuv420p',
+        '-c:v','libx264','-crf','16','-pix_fmt','yuv420p',
         '-c:a','aac','-ar','48000','-ac','2','-shortest',
         str(output),
     ]
@@ -231,6 +378,8 @@ def render(
     telemetry: TelemetrySink|None=None,
     end_card: EndCardRenderSpec|None=None,
     resolution: str = "auto",
+    normalize_audio: bool = True,
+    target_lufs: float = -16.0,
 ) -> Path:
     """Render approved shots in package order, optionally followed by a branded end card.
 
@@ -254,10 +403,16 @@ def render(
         if uri.startswith('http://') or uri.startswith('https://'): raise ValueError('Filmmaker render requires local media paths; download remote assets first')
         src=Path(uri); seg=work/f'{i:04d}-{item["shot_id"]}.mp4'; dur=str(item['duration_seconds'])
         has_audio=item['has_audio'] if item['kind'] not in _IMAGE_KINDS else False
+        norm_filter = (
+            _measure_loudnorm_filter(ffmpeg=ffmpeg, src=src, target_lufs=target_lufs)
+            if has_audio and normalize_audio
+            else None
+        )
         cmd=_segment_command(
             ffmpeg=ffmpeg,src=src,seg=seg,duration=dur,kind=item['kind'],has_audio=has_audio,
             fade_out_seconds=min(final_fade, float(dur)) if i==len(timeline)-1 else 0.0,
             width=width,height=height,
+            audio_normalize_filter=norm_filter,
         )
         subprocess.run(cmd,check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL); segments.append(seg)
     extra_duration=0.0

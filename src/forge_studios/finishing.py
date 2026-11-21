@@ -4,6 +4,7 @@ import shutil
 import subprocess
 import time
 from dataclasses import dataclass
+import re
 from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import urlparse
@@ -33,6 +34,10 @@ class EndCardProfile:
     zoom_start: float = 0.96
     zoom_end: float = 1.06
     background: str = 'black'
+    show_episode_info: bool = True
+    copyright_text: str | None = None
+    copyright_holder: str | None = None
+    copyright_year: int | None = None
 
 
 @dataclass(frozen=True)
@@ -43,6 +48,7 @@ class MusicProfile:
     default_mode: MusicMode = 'style'
     prompt_library: str | None = None
     prompt_id: str | None = None
+    inline_prompt: str | None = None
     prompt_influence: float = 0.5
     mix_level: float = 0.18
     fade_in_seconds: float = 0.4
@@ -103,6 +109,10 @@ def load_finishing_profile(path: str|Path) -> FinishingProfile:
             zoom_start=float(end_raw.get('zoom_start',0.96)),
             zoom_end=float(end_raw.get('zoom_end',1.06)),
             background=str(end_raw.get('background','black')),
+            show_episode_info=bool(end_raw.get('show_episode_info',True)),
+            copyright_text=str(end_raw['copyright_text']) if end_raw.get('copyright_text') else None,
+            copyright_holder=str(end_raw['copyright_holder']) if end_raw.get('copyright_holder') else None,
+            copyright_year=int(end_raw['copyright_year']) if end_raw.get('copyright_year') is not None else None,
         )
     music_raw=raw.get('music')
     music=None
@@ -153,15 +163,46 @@ def resolve_manifest_asset(asset_id: str, *, manifest_path: str|Path, asset_root
     return path
 
 
+def _episode_label_from_package(package: EpisodePackage | None) -> str | None:
+    if package is None:
+        return None
+    trace = package.trace if isinstance(package.trace, dict) else {}
+    for key in ('episode_plan', 'episode_seed'):
+        block = trace.get(key)
+        if isinstance(block, dict):
+            season = block.get('season_number') or block.get('season')
+            ep = block.get('episode_number')
+            if season is not None and ep is not None:
+                return f'SEASON {int(season)} · EPISODE {int(ep)}'
+    match = re.match(r'^s(\d+)e(\d+)', package.episode_id.strip(), re.IGNORECASE)
+    if match:
+        return f'SEASON {int(match.group(1))} · EPISODE {int(match.group(2))}'
+    if isinstance(trace.get('episode_seed'), dict) and trace['episode_seed'].get('episode_number') is not None:
+        return f"EPISODE {int(trace['episode_seed']['episode_number'])}"
+    return None
+
+
+def _resolve_copyright_text(spec: EndCardProfile) -> str | None:
+    if spec.copyright_text and spec.copyright_text.strip():
+        return spec.copyright_text.strip()
+    if spec.copyright_holder and spec.copyright_holder.strip():
+        year_part = f'{spec.copyright_year} ' if spec.copyright_year else ''
+        return f'© {year_part}{spec.copyright_holder.strip()}. All rights reserved.'
+    return None
+
+
 def resolve_end_card(
     profile: FinishingProfile,
     *,
     manifest_path: str|Path,
     asset_root: str|Path,
+    package: EpisodePackage | None = None,
 ) -> EndCardRenderSpec | None:
     spec=profile.end_card
     if not spec or not spec.enabled:
         return None
+    episode_label = _episode_label_from_package(package) if spec.show_episode_info else None
+    episode_title = package.title.strip() if (spec.show_episode_info and package and package.title) else None
     return EndCardRenderSpec(
         main_logo=resolve_manifest_asset(spec.main_logo_asset_id,manifest_path=manifest_path,asset_root=asset_root),
         secondary_logo=resolve_manifest_asset(spec.secondary_logo_asset_id,manifest_path=manifest_path,asset_root=asset_root),
@@ -173,11 +214,46 @@ def resolve_end_card(
         zoom_start=spec.zoom_start,
         zoom_end=spec.zoom_end,
         background=spec.background,
+        episode_label=episode_label,
+        episode_title=episode_title,
+        copyright_text=_resolve_copyright_text(spec),
+    )
+
+
+def finishing_profile_from_package(package: EpisodePackage, package_path: str|Path='episode-package.json') -> FinishingProfile | None:
+    """Build a music-only FinishingProfile from EpisodePackage.finishing when present."""
+    raw=package.finishing.get('music') if isinstance(package.finishing, dict) else None
+    if not isinstance(raw, dict) or not bool(raw.get('enabled', True)):
+        return None
+    desc=raw.get('description') or raw.get('prompt') or raw.get('template')
+    inline=str(desc).strip() if isinstance(desc, str) and desc.strip() else None
+    mode=str(raw.get('mode') or raw.get('default_mode') or 'style')
+    if mode not in {'video','style','custom','none'}:
+        raise ValueError(f'unsupported default music mode: {mode!r}')
+    if mode=='style' and not inline:
+        return None
+    return FinishingProfile(
+        path=Path(package_path).expanduser().resolve(),
+        profile_id=f'{package.show_id}_package_finishing',
+        end_card=None,
+        music=MusicProfile(
+            enabled=True,
+            provider=str(raw.get('provider','fal')),
+            model=str(raw.get('model','sonilo/v1.1/video-to-music')),
+            default_mode=mode,  # type: ignore[arg-type]
+            inline_prompt=inline,
+            prompt_influence=float(raw.get('prompt_influence',0.5)),
+            mix_level=float(raw.get('mix_level',0.18)),
+            fade_in_seconds=float(raw.get('fade_in_seconds',0.4)),
+            fade_out_seconds=float(raw.get('fade_out_seconds',0.8)),
+        ),
     )
 
 
 def load_profile_music_prompt(profile: FinishingProfile) -> str:
     music=profile.music
+    if music and music.inline_prompt and music.inline_prompt.strip():
+        return music.inline_prompt.strip()
     if not music or not music.prompt_library or not music.prompt_id:
         raise ValueError(f'finishing profile {profile.profile_id!r} does not define a style prompt')
     library=(profile.path.parent/music.prompt_library).resolve()
@@ -332,12 +408,17 @@ def _mix_music_command(
     duration_seconds: float,
     fade_in_seconds: float,
     fade_out_seconds: float,
+    fade_out_start_seconds: float | None = None,
 ) -> list[str]:
     if level < 0:
         raise ValueError('music level cannot be negative')
     fade_in=max(0.0,min(fade_in_seconds,duration_seconds))
-    fade_out=max(0.0,min(fade_out_seconds,duration_seconds))
-    fade_out_start=max(0.0,duration_seconds-fade_out)
+    if fade_out_start_seconds is not None:
+        fade_out_start=max(0.0,min(fade_out_start_seconds,duration_seconds))
+        fade_out=max(0.0,min(fade_out_seconds,duration_seconds-fade_out_start))
+    else:
+        fade_out=max(0.0,min(fade_out_seconds,duration_seconds))
+        fade_out_start=max(0.0,duration_seconds-fade_out)
     filters=(
         f'[1:a]volume={level:g},afade=t=in:st=0:d={fade_in:g},'
         f'afade=t=out:st={fade_out_start:g}:d={fade_out:g}[music];'
@@ -360,6 +441,7 @@ def mix_music(
     level: float=0.18,
     fade_in_seconds: float=0.4,
     fade_out_seconds: float=0.8,
+    fade_out_before_end_seconds: float=0.0,
     telemetry: TelemetrySink|None=None,
     production_id: str|None=None,
     episode_id: str|None=None,
@@ -370,9 +452,15 @@ def mix_music(
     if not music_path.is_file(): raise FileNotFoundError(music_path)
     out.parent.mkdir(parents=True,exist_ok=True)
     duration=_probe_duration(video_path,ffprobe=_ffprobe_for(ffmpeg))
+    fade_out_start = (
+        max(0.0, duration - fade_out_before_end_seconds)
+        if fade_out_before_end_seconds > 0 and duration > fade_out_before_end_seconds
+        else None
+    )
     cmd=_mix_music_command(
         ffmpeg=ffmpeg,video=video_path,music=music_path,output=out,level=level,duration_seconds=duration,
         fade_in_seconds=fade_in_seconds,fade_out_seconds=fade_out_seconds,
+        fade_out_start_seconds=fade_out_start,
     )
     subprocess.run(cmd,check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
     (telemetry or TelemetrySink()).emit(
@@ -423,10 +511,16 @@ def score_video(
         poll_interval_seconds=poll_interval_seconds,production_id=production_id,
         episode_id=episode_id,show_id=show_id,
     )
+    if profile.end_card and profile.end_card.enabled:
+        lead_before_end = max(5.0, profile.end_card.duration_seconds + profile.end_card.fade_seconds)
+        fade_duration = max(music.fade_out_seconds, lead_before_end - profile.end_card.duration_seconds + music.fade_out_seconds)
+    else:
+        lead_before_end = 0.0
+        fade_duration = music.fade_out_seconds
     return mix_music(
         source,music_path,out,ffmpeg=ffmpeg,level=level,fade_in_seconds=music.fade_in_seconds,
-        fade_out_seconds=music.fade_out_seconds,telemetry=sink,
-        production_id=production_id,episode_id=episode_id,show_id=show_id,
+        fade_out_seconds=fade_duration,fade_out_before_end_seconds=lead_before_end,
+        telemetry=sink,production_id=production_id,episode_id=episode_id,show_id=show_id,
     )
 
 
@@ -451,6 +545,7 @@ def finish_episode(
     progress=print,
     client_timeout_seconds: float|None=None,
     poll_interval_seconds: float=5.0,
+    normalize_audio: bool=True,
 ) -> Path:
     """Create picture lock, generate one Sonilo stem, then produce the authoritative final mix."""
     out=Path(output).expanduser().resolve(); out.parent.mkdir(parents=True,exist_ok=True); sink=telemetry or TelemetrySink()
@@ -461,9 +556,9 @@ def finish_episode(
     if profile.end_card:
         if not manifest or not root:
             raise ValueError('end card requires --asset-manifest/--asset-root or discoverable Forge Born asset sources')
-        end_card=resolve_end_card(profile,manifest_path=manifest,asset_root=root)
+        end_card=resolve_end_card(profile,manifest_path=manifest,asset_root=root,package=package)
     picture=Path(picture_lock_output).expanduser().resolve() if picture_lock_output else out.with_name(f'{out.stem}-picture-lock{out.suffix}')
-    render(package,picture,ffmpeg=ffmpeg,telemetry=sink,end_card=end_card,resolution=resolution)
+    render(package,picture,ffmpeg=ffmpeg,telemetry=sink,end_card=end_card,resolution=resolution,normalize_audio=normalize_audio)
     return score_video(
         picture,out,profile=profile,music_mode=music_mode,music_prompt=music_prompt,music_direction=music_direction,
         prompt_influence=prompt_influence,music_level=music_level,music_output=music_output,ffmpeg=ffmpeg,
