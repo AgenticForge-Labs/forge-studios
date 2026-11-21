@@ -1,6 +1,7 @@
 from __future__ import annotations
 from collections.abc import Mapping
 from .contracts import EpisodePackage
+from .filmmaker import probe_media, _IMAGE_KINDS
 from .effects import EffectSpec,mlt_filter,zoom_pan
 from .timeline import TimelineClip,build_timeline
 
@@ -28,13 +29,16 @@ def timeline_from_episode_package(package:EpisodePackage,*,rate:float=30.0,requi
     for shot in package.shots:
         asset_id=_selected_asset_id(shot); asset=package.find_asset(asset_id) if asset_id else None
         if require_approved_media and not asset: raise ValueError(f'shot {shot.shot_id!r} has no approved media')
+        duration=shot.duration_seconds
+        if asset and asset.kind not in _IMAGE_KINDS:
+            duration=probe_media(asset.uri)['duration_seconds']
         intent=shot.edit_intent
         metadata={
             'production_id':package.production_id,'episode_id':package.episode_id,'revision':package.revision,
-            'beat_id':shot.beat_id,'site_id':shot.site_id,'shot_id':shot.shot_id,'asset_id':asset_id,
+            'site_id':shot.site_id,'shot_id':shot.shot_id,'asset_id':asset_id,
             'edit_intent':dict(intent),'transition_in':intent.get('transition_in'),'transition_out':intent.get('transition_out'),
             'hold_after_seconds':float(intent.get('hold_after_seconds') or 0),'music_cue':intent.get('music_cue'),
             'sound_effects':list(intent.get('sound_effects') or []),'caption_dialogue':False,
         }
-        clips.append(TimelineClip(name=shot.shot_id,duration_seconds=shot.duration_seconds,media_url=asset.uri if asset else None,metadata=metadata,effects=_effects(intent,duration=shot.duration_seconds,rate=rate)))
+        clips.append(TimelineClip(name=shot.shot_id,duration_seconds=duration,media_url=asset.uri if asset else None,metadata=metadata,effects=_effects(intent,duration=duration,rate=rate)))
     return build_timeline(clips,name=package.title,rate=rate,metadata={'production_id':package.production_id,'episode_id':package.episode_id,'revision':package.revision})

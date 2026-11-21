@@ -95,6 +95,15 @@ python -m pip install -e '.[full,dev]'
 
 ## Validate and inspect
 
+Forge Studios accepts ordinary frame prose and the Forge Worlds
+`REFERENCE AND GENERATION INSTRUCTIONS` / `SHOT SPECIFICATION (JSON)` /
+`IMAGE PROMPT` envelope. It rejects malformed structured data and invalid
+nested pose/staging field types, but **does not** interpret English action
+words, quoted text, or start/end prompt similarity as hard failures. Those
+semantic concerns belong to Forge Worlds evaluation and human media review.
+All original prompt text is sent unchanged to the image provider.
+
+
 ```bash
 forge-studios validate episode-package.json
 forge-studios plan --package episode-package.json
@@ -140,6 +149,49 @@ draft review evidence, not accepted production. They may be kept locally while u
 and are not required for private R2 backup. Once a frame/clip is explicitly approved
 into the production package, it becomes accepted production media and is backup-required.
 
+## Portable storyboard ZIP review
+
+After generating frame candidates, use `forge-studios storyboard-export` to
+create a self-contained ZIP with the current package review projection, full
+resolution images, canonical references, offline HTML, labeled contact sheet,
+per-shot prompts, checksums, available provenance, and missing-image diagnostics.
+The export does not generate or approve media. See
+[`docs/STORYBOARD_REVIEW_EXPORT.md`](docs/STORYBOARD_REVIEW_EXPORT.md) for
+the one-frame smoke test, safeguarded foreground batch runner, and `~/Downloads`
+handoff.
+
+### Production storyboard GPT Image 2 refresh
+
+The **global normal** mode now uses GPT Image 2 through Fal for both
+text-to-image (`openai/gpt-image-2`) and reference-conditioned image
+generation (`openai/gpt-image-2/edit`). Each requests one high-quality image.
+The normal profile targets 1920×1080; Fal's text-only size constraint rounds
+that endpoint to 2048×1152, while reference editing retains the validated
+1920×1080 request. Use explicit `cheap` mode for the older FLUX Flash
+models. Per-model overrides remain available; video model defaults are unchanged.
+
+The `scripts/run_storyboard_review.sh` foreground runner keeps its
+explicit `openai/gpt-image-2/edit` Fal model selection for reproducible
+Episode 1 registered still-image generation. Its `full --confirm-paid` mode
+invokes the ordinary Studios Animator, refreshes any mismatched prior
+candidates, registers new per-shot assets/attempts in the **original
+EpisodePackage**, checkpoints after each successful image, and resumes
+without repeating matching local GPT results. There is no automatic approval,
+video generation, or rewrite of Forge Worlds' authored prompts. See
+`docs/STORYBOARD_REVIEW_EXPORT.md`.
+
+### Fal-only model comparisons
+
+Before approving the first storyboard image, run
+`scripts/run_image_model_comparison.sh` to compare the same EpisodePackage
+prompt and canonical references against Fal-hosted OpenAI GPT Image 2,
+Google Nano Banana 2, FLUX.2 Klein 4B, and Qwen Image Edit 2511.
+The existing Platform AI Runtime owns provider credentials, and the
+comparison's development-runtime guard verifies isolation before sending
+metered requests. Comparison results are portable review ZIPs only; nothing
+is auto-approved or registered in the production package. See
+`docs/STORYBOARD_REVIEW_EXPORT.md`.
+
 ## Reference semantics
 
 Forge Worlds resolves world/view IDs to stable reference assets before handoff.
@@ -159,6 +211,28 @@ Paid video remains explicitly gated.
 ```bash
 forge-studios auto --package episode-package.json --provider fal
 ```
+
+### Opt-in Puppeteer behavior-pack execution
+
+`forge_studios.puppeteer_bridge.dispatch_behavior_pack` can hand one resolved
+shot to an installed Forge Puppeteer `MCPClient`. This is an explicit Python
+API; it is not selected by shot prose or the normal Studios CLI. The caller
+must supply the operator-authored MCP server configuration, behavior-pack
+manifest path, pack ID, exact `sha256:` pack revision, server name, and take ID.
+Puppeteer compiles and revision-checks the pack, then performs its ordinary
+capability, readiness, authority, ownership, and catalog preflight. Studios
+records the result as a candidate physical-take asset. Install the compatible
+`forge-puppeteer[mcp]` package in the same Python environment to enable this
+route. If only the base `forge-puppeteer` package is present, dispatch reports
+the missing extra and the install command. The repeatable fake-stdio integration
+test is `tests/current/test_puppeteer_bridge.py::test_installed_puppeteer_wheel_stdio_handoff_and_stale_pin`;
+it requires the installed `forge-puppeteer[mcp]` wheel and its
+`forge-puppeteer-mcp` console script on `PATH`, and does not use a Puppeteer
+source checkout.
+The server command and arguments are passed as structured configuration to
+Puppeteer's MCP client; request data cannot supply executable text or a tool.
+Use mock-only server profiles for integration checks. Physical execution still
+requires the operator's active motion authority and broker approval.
 
 ## Provider configuration
 
@@ -180,8 +254,14 @@ Local approved references and picture-lock videos are sent to Runtime as explici
 asset inputs; Runtime uploads them to fal.ai and substitutes only those transport
 references. Runtime must not rewrite prompts or infer production intent.
 
-Use `--mode cheap` for routine iteration. Current cheap defaults are documented in
-`AGENTS.md`.
+`FalProvider` reads `FORGE_STUDIOS_MODE` for the selected generation
+profile; its default `normal` profile now uses GPT Image 2 for **both**
+text-to-image and reference-conditioned image generation. The single-shot
+`generate` and `storyboard` CLI commands do not support `--mode`. The Episode 1 paid storyboard runner uses the explicit
+**normal** profile and verifies the running isolated Platform development
+runtime/token before generating. The offline export remains free. See
+`docs/STORYBOARD_REVIEW_EXPORT.md` for the signed-off one-frame workflow,
+failed-auth recovery, and remaining local validation gates.
 
 Never commit Runtime tokens, provider keys, credentials, or local secret files.
 
@@ -193,7 +273,24 @@ forge-studios render --package episode-package.json --out episode.mp4
 forge-studios timeline --package episode-package.json --out episode.otio --require-media
 ```
 
-`render` always preserves `package.shots` order and generated clip audio. When it can
+`render` preserves `package.shots` order and plays every selected video through to
+its end, preserving generated clip audio. Package shot durations do not trim or extend
+videos. Edit plans and media-bound timelines use probed video durations as well;
+still-image fallbacks retain the package duration as their hold time. Selected media
+must be available locally, with FFmpeg and FFprobe installed.
+
+The default `--resolution auto` uses the first selected video's resolution (or the
+first image when the edit contains only stills). Mixed sizes are fitted to that
+canvas with aspect-preserving padding. End cards use the same canvas. Odd source
+dimensions round up to even pixels for H.264. Set an explicit even `WIDTHxHEIGHT`
+to upscale or downscale; encoding remains 30 fps H.264 with stereo AAC:
+
+```bash
+forge-studios render --package episode-package.json --out episode.mp4 --music-mode none
+forge-studios render --package episode-package.json --out episode-1080p.mp4 --resolution 1920x1080 --music-mode none
+```
+
+When it can
 auto-discover a show-owned `show/finishing.yaml`, it also renders that profile's branded
 end card, saves an unscored `episode-picture-lock.mp4`, generates a Sonilo music stem
 through fal, and creates the final deterministic audio mix. A show can therefore keep its

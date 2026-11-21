@@ -148,6 +148,7 @@ class EpisodePackage(BaseModel):
     target_duration_seconds: float
     shots: list[Shot] = Field(default_factory=list)
     assets: list[AssetRecord] = Field(default_factory=list)
+    finishing: dict[str, Any] = Field(default_factory=dict)
     trace: dict[str, Any] = Field(default_factory=dict)
 
     @model_validator(mode="after")

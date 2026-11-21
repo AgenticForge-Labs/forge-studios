@@ -50,7 +50,7 @@ def _option_value(argv: list[str], option: str) -> str | None:
 def _log_fal_generation_profile(argv: list[str], mode: str) -> None:
     if _option_value(argv, "--provider") != "fal":
         return
-    provider = FalProvider(mode=mode)
+    provider = FalProvider(mode=mode, image_edit_model=_option_value(argv, "--image-edit-model"))
     profile = provider.profile
     print(f"[generation] mode={profile.mode.value}", file=sys.stderr)
     print("[generation] image_provider=fal", file=sys.stderr)

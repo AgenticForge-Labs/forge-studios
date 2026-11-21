@@ -37,9 +37,14 @@ _IMAGE_MODEL_PROFILES = {
     "fal-ai/kling-image/o3/image-to-image": FalImageModelProfile(
         "image_urls", "list", 10, max_prompt_chars=2500
     ),
+    "openai/gpt-image-2": FalImageModelProfile("image_urls", "list", 0),
     "openai/gpt-image-2/edit": FalImageModelProfile("image_urls", "list", 16),
 }
 _FAST_VIDEO_DURATIONS = {6, 8, 10, 12, 14, 16, 18, 20}
+_VIDEO_PROMPT_LIMITS = {
+    # Fal's validation response for the current LTX fast endpoint reports this cap.
+    "fal-ai/ltx-2.3/image-to-video/fast": 5000,
+}
 
 
 def image_model_profile(model: str) -> FalImageModelProfile:
@@ -50,11 +55,21 @@ def image_model_profile(model: str) -> FalImageModelProfile:
 def resolve_supported_image_size(model: str, width: int, height: int) -> tuple[int, int]:
     """Resolve a mode target to the nearest documented practical 16:9 size.
 
-    FLUX.2 Flash/Flash Edit document a 512px minimum for each custom dimension,
-    so the semantic cheap target 768x432 cannot be sent literally. We scale to
-    the smallest exact integer 16:9 dimensions satisfying that endpoint limit.
-    Explicit per-request ``image_size`` still bypasses this mode-default resolver.
+    FLUX.2 Flash/Flash Edit require a 512px minimum edge. GPT Image 2
+    text-to-image requires both custom dimensions divisible by 16, so a
+    semantic 1920x1080 target becomes an exact 16:9 2048x1152 request.
+    The reference-conditioned GPT edit endpoint retains its field-tested
+    1920x1080 payload. Explicit per-request ``image_size`` bypasses
+    this default resolver.
     """
+    # Fal GPT Image 2 text-to-image validates that both custom edges are
+    # multiples of 16. Keep the semantic target (normally 1920x1080) but
+    # round this particular endpoint upward to the next exact 16:9 size
+    # that meets the schema (2048x1152). The tested GPT edit endpoint's
+    # current 1920x1080 request is intentionally left untouched.
+    if model == 'openai/gpt-image-2' and (width % 16 or height % 16):
+        unit = 16 * math.ceil(max(width / 16, height / 9) / 16)
+        return 16 * unit, 9 * unit
     profile=image_model_profile(model)
     minimum=profile.min_dimension
     if minimum is None or (width >= minimum and height >= minimum):
@@ -200,10 +215,24 @@ class FalProvider:
             if 'image_size' not in payload and self.profile.image.width and self.profile.image.height:
                 width,height=resolve_supported_image_size(model,self.profile.image.width,self.profile.image.height)
                 payload['image_size']={'width':width,'height':height}
+            if model in {'openai/gpt-image-2', 'openai/gpt-image-2/edit'}:
+                # Both Fal GPT Image 2 endpoints support the same deterministic
+                # quality and output-count controls. Their reference input
+                # contracts differ and remain selected by model_for().
+                payload.setdefault('quality', 'high')
+                payload.setdefault('num_images', 1)
             if model.startswith('fal-ai/flux-2'):
                 payload.setdefault('safety_tolerance', os.getenv('FAL_IMAGE_SAFETY_TOLERANCE','5'))
                 payload.setdefault('enable_safety_checker', True)
             return
+
+        prompt = str(payload.get('prompt') or '')
+        max_prompt_chars = _VIDEO_PROMPT_LIMITS.get(model)
+        if max_prompt_chars is not None and len(prompt) > max_prompt_chars:
+            raise ValueError(
+                f'Fal model {model!r} accepts prompts up to {max_prompt_chars} characters; '
+                f'received {len(prompt)}. Shorten the authored prompt upstream in Forge Worlds.'
+            )
 
         if 'video_size' not in payload and 'resolution' not in payload:
             if self.profile.video.width and self.profile.video.height:
@@ -221,6 +250,10 @@ class FalProvider:
             if fps <= 0:
                 raise ValueError('video fps must be positive')
             payload['num_frames']=max(1,round(duration*fps))
+        elif 'heygen' in model:
+            rounded=round(duration)
+            # HeyGen image-to-video supports up to 15 seconds in 5s increments: 5, 10, 15
+            payload['duration']=min(rounded, 15) if rounded >= 5 else 5
         else:
             rounded=round(duration)
             if abs(duration-rounded) > 1e-6 or rounded not in _FAST_VIDEO_DURATIONS:
@@ -229,7 +262,7 @@ class FalProvider:
                     f'Fal LTX fast video supports durations {allowed} seconds; requested {duration:g}. '
                     'Forge Studios will not silently shorten the shot.'
                 )
-            payload['duration']=str(rounded)
+            payload['duration']=rounded
 
     def _diagnostic_settings(self, *, request: MediaRequest, model: str, payload: dict[str,Any], reference_count: int) -> dict[str,Any]:
         settings: dict[str,Any]={
@@ -254,10 +287,16 @@ class FalProvider:
                 'prompt_chars':len(str(payload.get('prompt') or '')),
                 'image_target_size':{'width':self.profile.image.width,'height':self.profile.image.height} if self.profile.image.width and self.profile.image.height else None,
                 'image_size':payload.get('image_size'),
+                'quality':payload.get('quality','provider-default'),
+                'num_images':payload.get('num_images','provider-default'),
                 'safety_tolerance':payload.get('safety_tolerance','provider-default'),
                 'enable_safety_checker':payload.get('enable_safety_checker','provider-default'),
             })
         else:
+            settings.update({
+                'max_prompt_chars':_VIDEO_PROMPT_LIMITS.get(model),
+                'prompt_chars':len(str(payload.get('prompt') or '')),
+            })
             settings.update({
                 'start_frame_field':os.getenv('FAL_VIDEO_START_FRAME_FIELD','image_url'),
                 'end_frame_field':os.getenv('FAL_VIDEO_END_FRAME_FIELD','end_image_url'),

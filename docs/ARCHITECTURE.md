@@ -54,6 +54,30 @@ intent. AgenticForge AI Runtime owns provider credentials and authenticated netw
 transport. For fal.ai, Studios compiles the exact request, supplies explicit local assets,
 and Runtime performs upload/provider execution without changing prompt semantics.
 
+## Image model routing and global defaults
+
+Studios has two deterministic Fal image execution routes under its shared
+`FalProvider`; both produce new registered candidate images when called by
+Animator. With the default `FORGE_STUDIOS_MODE=normal`:
+
+- **Text-only image requests** use `openai/gpt-image-2` (Fal text-to-image).
+- **Reference-conditioned requests** use `openai/gpt-image-2/edit`
+  with the authored ordered canonical images. The endpoint name describes
+  Fal's input contract, not whether the output is a newly generated frame.
+- Both request `quality=high`, `num_images=1`. Normal mode targets
+  1920×1080; Fal text generation requires both edges divisible by 16, so
+  that provider request rounds to 2048×1152. The reference-conditioned
+  endpoint retains the validated 1920×1080 request. Actual returned
+  dimensions remain provider evidence.
+- `FORGE_STUDIOS_MODE=cheap` intentionally retains FLUX Flash for
+  low-cost experimentation. Provider/model overrides take precedence.
+- Existing video generation, media attribution and approval policies
+  are unchanged; Platform AI Runtime still handles credentials and upload.
+
+This is a selected quality default subject to future evaluation, not a
+claim that any model is universally superior. Show-specific semantic intent
+continues to come from Forge Worlds/authoritative EpisodePackages.
+
 ## Prompt execution
 
 Forge Worlds (or another package author) supplies complete provider-facing shot prompts
@@ -75,6 +99,17 @@ provenance. It does not include adding camera prose, site geometry, visual const
 reference-role prose, audio policy, or fallback creative instructions.
 
 A missing prompt is a package error and is returned upstream rather than repaired here.
+
+Frame validation is strictly structural. For a producer-authored JSON-plus-prose
+envelope, check the JSON object, media/frame role, staging field types and optional
+`shot_pose` string/object and nested configuration types. Continue to accept
+ordinary prose-only packages. Keep deterministic camera/frame-plan, reference,
+asset, endpoint and provider-capability checks. Do not classify free-form prose,
+quotes, pose or temporal meaning with hardcoded motion/audio/dialogue words, regex
+matchers, or start/end fuzzy string similarity: Forge Worlds owns authoring and
+paired semantic evaluation, with human review for actual images. Studios sends
+the **complete** authored prompt unchanged; it neither rewrites nor semantically
+gates it.
 
 
 ## Boundary frames
@@ -108,7 +143,13 @@ errors, latency/cost when available, and review decisions. Candidate history is 
 ## Filmmaker
 
 Filmmaker selects approved media in package order and creates deterministic edit/timeline
-projections. It does not introduce a second editorial truth.
+projections. It does not introduce a second editorial truth. Video segments play to
+EOF; package durations are generation targets, not assembly trim points. Selected
+video durations are probed for edit plans and media-bound timeline projections;
+still-image holds and unbound planning shots use authored durations. Rendering uses
+the first video's resolution by default, fitting other media with padding. An explicit
+`render --resolution WIDTHxHEIGHT` scales the full edit and its end card to that
+canvas. All segments share 30 fps H.264/stereo AAC for concatenation.
 
 Episode finishing is two-stage:
 
@@ -128,7 +169,13 @@ configured Sonilo route uses the show's constant style prompt; video-only and cu
 prompt reruns use the same scoring primitive.
 
 Ordinary shot boundaries remain hard cuts by default. End-card fades are deterministic
-finishing behavior, not a reason to add semantic editing decisions inside Studios.
+finishing behavior, not a reason to add semantic editing decisions inside Studios. End-card
+zoom uses 8x-supersampled `zoompan` inside a fixed box to avoid integer-scale jitter, and
+spoken/ambience clips use EBU R128 loudness normalization by default (`--no-normalize-audio`
+opts out). When an end card is enabled, `score_video` begins the music fade-out at least
+5 seconds before the end so the score settles by the black transition into the card. For
+~150s+ 1080p picture locks that exceed AI Runtime's 80M base64 limit (~60 MB binary), score
+against a 640p proxy (`~8 MB`) and mix the returned stem onto the 1080p picture lock.
 
 ## Autonomy
 

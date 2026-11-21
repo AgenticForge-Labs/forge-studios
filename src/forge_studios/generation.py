@@ -72,8 +72,8 @@ _PROFILES = {
         mode=GenerationMode.NORMAL,
         image=ImageGenerationProfile(
             provider="fal",
-            generate_model="fal-ai/flux-2/flash",
-            edit_model="fal-ai/flux-2-pro/edit",
+            generate_model="openai/gpt-image-2",
+            edit_model="openai/gpt-image-2/edit",
             width=1920,
             height=1080,
         ),
